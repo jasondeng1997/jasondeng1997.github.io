@@ -25,7 +25,7 @@
 **方式一：网页后台（推荐）**
 
 1. 打开 https://jasondeng1997.github.io/admin/
-2. 输入管理密码（默认 `JasonDeng@2026`，改法见下）
+2. 输入管理密码（已自定义，改法见文末「修改管理密码」）
 3. 点右上角「设置」，填入 GitHub Personal Access Token
    - 生成地址：https://github.com/settings/personal-access-tokens/new
    - 权限：只勾选本仓库，**Contents: Read and write**

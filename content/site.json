@@ -19,8 +19,8 @@
     "branch": "main"
   },
   "admin": {
-    "passwordHash": "985eb01aafa81235a874c87f740e1ff50b6e15506492a2274af5f48f9032a020",
-    "passwordHint": "默认密码为 JasonDeng@2026，请尽快在 content/site.json 里改成你自己的哈希。"
+    "passwordHash": "30841b808e23a1c2784a35b109cc12c76a24a26ee8160746d3da3f48f7e50f43",
+    "passwordHint": "管理密码已自定义。修改方式见仓库 README「修改管理密码」一节。"
   },
   "nav": [
     { "label": "首页", "url": "/" },
