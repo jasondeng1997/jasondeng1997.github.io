@@ -1,0 +1,13 @@
+# 构建产物（构建脚本会覆盖，无需入库，但为了 GitHub Pages 直接托管，实际是提交的）
+dist/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

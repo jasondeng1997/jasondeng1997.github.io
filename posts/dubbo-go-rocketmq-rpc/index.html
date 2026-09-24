@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>dubbo-go 引入 RocketMQ 作为 RPC 的设计文档 — JasonDeng 的技术随笔</title>
+<meta name="description" content="把 RocketMQ 当作 RPC 通道来接进 dubbo-go：注册中心与 protocol 两个模块怎么拆、topic 粒度选方法还是选类、元数据往哪塞，以及条件路由为什么建议第一期不做。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="dubbo-go,RocketMQ,RPC,微服务,Go">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/dubbo-go-rocketmq-rpc/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="dubbo-go 引入 RocketMQ 作为 RPC 的设计文档">
+<meta property="og:description" content="把 RocketMQ 当作 RPC 通道来接进 dubbo-go：注册中心与 protocol 两个模块怎么拆、topic 粒度选方法还是选类、元数据往哪塞，以及条件路由为什么建议第一期不做。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/dubbo-go-rocketmq-rpc/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "dubbo-go \u5f15\u5165 RocketMQ \u4f5c\u4e3a RPC \u7684\u8bbe\u8ba1\u6587\u6863",
+  "description": "\u628a RocketMQ \u5f53\u4f5c RPC \u901a\u9053\u6765\u63a5\u8fdb dubbo-go\uff1a\u6ce8\u518c\u4e2d\u5fc3\u4e0e protocol \u4e24\u4e2a\u6a21\u5757\u600e\u4e48\u62c6\u3001topic \u7c92\u5ea6\u9009\u65b9\u6cd5\u8fd8\u662f\u9009\u7c7b\u3001\u5143\u6570\u636e\u5f80\u54ea\u585e\uff0c\u4ee5\u53ca\u6761\u4ef6\u8def\u7531\u4e3a\u4ec0\u4e48\u5efa\u8bae\u7b2c\u4e00\u671f\u4e0d\u505a\u3002",
+  "datePublished": "2022-01-22",
+  "dateModified": "2022-01-22",
+  "url": "https://jasondeng1997.github.io/posts/dubbo-go-rocketmq-rpc/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "dubbo-go,RocketMQ,RPC,\u5fae\u670d\u52a1,Go",
+  "articleSection": "dubbo-go"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2022-01-22</span>
+      </nav>
+      <h1>dubbo-go 引入 RocketMQ 作为 RPC 的设计文档</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">把 RocketMQ 当作 RPC 通道来接进 dubbo-go：注册中心与 protocol 两个模块怎么拆、topic 粒度选方法还是选类、元数据往哪塞，以及条件路由为什么建议第一期不做。</p>      <div class="article-head__meta">
+        <span>2022-01-22</span>
+        <span class="dot"></span>
+        <span>2 分钟阅读</span>
+<span class="dot"></span><span>约 676 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/dubbo-go/">#dubbo-go</a><a class="tag" href="/tags/rocketmq/">#RocketMQ</a><a class="tag" href="/tags/rpc/">#RPC</a><a class="tag" href="/tags/microservices/">#微服务</a><a class="tag" href="/tags/go/">#Go</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <h2 id="_1">设计</h2>
+<p>实现基于 RocketMQ 的 RPC 能力，需要实现注册中心模块和 protocol 模块。</p>
+<h3 id="_2">术语</h3>
+<h4 id="_3">术语统一</h4>
+<table>
+<thead>
+<tr>
+<th>dubbo-go</th>
+<th>RocketMQ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>client</td>
+<td>producer</td>
+</tr>
+<tr>
+<td>service</td>
+<td>consumer</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_4">术语解释</h4>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>术语</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rocketmq</td>
+<td>broker</td>
+<td>数据存储组件</td>
+</tr>
+<tr>
+<td>rocketmq</td>
+<td>nameservice</td>
+<td>RocketMQ 的注册中心与管理中心</td>
+</tr>
+<tr>
+<td>dubbo</td>
+<td>元数据</td>
+<td>方法参数类型信息、方法请求与响应配置信息</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_5">架构流程</h3>
+<p><img alt="基于 RocketMQ 的 RPC 整体架构" src="/assets/images/posts/dubbo-go-rocketmq/01.png" /></p>
+<h4 id="rpc">RPC 流程</h4>
+<ol>
+<li>client 发送请求数据到 broker</li>
+<li>service 从 broker 拉取请求数据</li>
+<li>当业务处理完成，service 把响应数据发送到 broker</li>
+<li>client 从 broker 拉取响应数据</li>
+</ol>
+<h4 id="_6">注册流程</h4>
+<ol>
+<li>broker 向 nameservice 注册 broker、topic、queue 三类信息</li>
+<li>client 从 nameservice 拉取路由信息</li>
+</ol>
+<p>PS：</p>
+<ol>
+<li>元数据与配置中心可以不做任何改变</li>
+<li>也可以把元数据注册到 nameservice 中</li>
+</ol>
+<h3 id="_7">注册中心设计</h3>
+<ol>
+<li>mock 一个注册中心，把路由功能直接交给 RocketMQ</li>
+<li>以 nameserver 为注册中心</li>
+<li>以 topic 作为注册中心</li>
+</ol>
+<h3 id="protocol">protocol 设计</h3>
+<ol>
+<li>protocol 模块制定一套标准用于支持各种注册中心</li>
+<li>基于 dubbo-go 的 protocol 标准开发</li>
+</ol>
+<h3 id="_8">总结</h3>
+<ol>
+<li>可以实现多套注册中心</li>
+<li>注册中心与 protocol 的开发可以并行</li>
+</ol>
+<h3 id="_9">预计开发时间</h3>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>预计开发时间</th>
+<th>负责人</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>protocol</td>
+<td>1 月 22 日到 1 月 30 日</td>
+<td></td>
+</tr>
+<tr>
+<td>以 nameserver 为注册中心</td>
+<td>2 月 10 日</td>
+<td></td>
+</tr>
+<tr>
+<td>以 topic 作为注册中心</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="_10">实现细节问题</h2>
+<h3 id="topic">Topic 设定</h3>
+<ol>
+<li>一个 topic 对应一个方法</li>
+<li>一个 topic 对应一个类</li>
+</ol>
+<h4 id="_11">对比</h4>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>方法</th>
+<th>类</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Topic 量</td>
+<td>大</td>
+<td>中</td>
+<td>方法与类对比大概是 10:1。可以使用 tag 用于区别方法实现标签路由，只能基于 tag。标签路由与使用 tag 区别方法实现冲突了</td>
+</tr>
+<tr>
+<td>实现难度</td>
+<td>大且麻烦</td>
+<td>中</td>
+<td>方法：需要对 config 进行扩展；类：只需要对 invoker 进行维护。invoker 对应一个方法</td>
+</tr>
+<tr>
+<td>方法级别隔离</td>
+<td>可以</td>
+<td>不可以</td>
+<td>可以基于 tag 进行区别</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_12">问题</h3>
+<h4 id="rocketmq-client">RocketMQ-client 配置信息</h4>
+<p>client 的对象创建有一些关键的信息需要配置。</p>
+<h4 id="_13">传输数据</h4>
+<ul>
+<li>client：直接把 invoker 中相关数据直接当做 message 的 body 传递，不做任何加工</li>
+<li>server：直接解析 body</li>
+</ul>
+<h4 id="_14">元数据的传递</h4>
+<p>元数据可以放到 message 中的 <code>properties</code> 字段里面。</p>
+<h4 id="queue">queue 问题</h4>
+<p>是否允许多个 write queue？如果允许多个 write queue，需要多点进行维护：</p>
+<ol>
+<li>instance 的适配</li>
+<li>负载均衡每个算法</li>
+<li><code>Directory.cacheInvoker</code> 的 instance 与 invoker 的处理</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="kd">type</span><span class="w"> </span><span class="nx">Instance</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Valid</span><span class="w">       </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"valid"`</span>
+<span class="w">    </span><span class="nx">Marked</span><span class="w">      </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"marked"`</span>
+<span class="w">    </span><span class="nx">InstanceId</span><span class="w">  </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"instanceId"`</span>
+<span class="w">    </span><span class="nx">Port</span><span class="w">        </span><span class="kt">uint64</span><span class="w">            </span><span class="s">`json:"port"`</span>
+<span class="w">    </span><span class="nx">Ip</span><span class="w">          </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"ip"`</span>
+<span class="w">    </span><span class="nx">Weight</span><span class="w">      </span><span class="kt">float64</span><span class="w">           </span><span class="s">`json:"weight"`</span>
+<span class="w">    </span><span class="nx">Metadata</span><span class="w">    </span><span class="kt">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span><span class="w"> </span><span class="s">`json:"metadata"`</span>
+<span class="w">    </span><span class="nx">ClusterName</span><span class="w"> </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"clusterName"`</span>
+<span class="w">    </span><span class="nx">ServiceName</span><span class="w"> </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"serviceName"`</span>
+<span class="w">    </span><span class="nx">Enable</span><span class="w">      </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"enabled"`</span>
+<span class="w">    </span><span class="nx">Healthy</span><span class="w">     </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"healthy"`</span>
+<span class="w">    </span><span class="nx">Ephemeral</span><span class="w">   </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"ephemeral"`</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h3 id="_15">基本功能情况</h3>
+<ol>
+<li>dubbo 的条件路由支持非常困难
+   - 如果需要支持：<ol>
+<li>需要对 broker 与 queue 进行标签</li>
+<li>server 端需要动态感知标签与动态监听
+   - <strong>不建议第一期就支持 dubbo 的条件路由</strong></li>
+</ol>
+</li>
+<li>tracing 的支持
+   - 开启 RocketMQ 的 tracing
+   - dubbo 与 RocketMQ 的兼容</li>
+</ol>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#_1">设计</a><ul><li><a href="#_2">术语</a></li><li><a href="#_5">架构流程</a></li><li><a href="#_7">注册中心设计</a></li><li><a href="#protocol">protocol 设计</a></li><li><a href="#_8">总结</a></li><li><a href="#_9">预计开发时间</a></li></ul></li><li><a href="#_10">实现细节问题</a><ul><li><a href="#topic">Topic 设定</a></li><li><a href="#_12">问题</a></li><li><a href="#_15">基本功能情况</a></li></ul></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/dubbo-go/">#dubbo-go</a><a class="tag" href="/tags/rocketmq/">#RocketMQ</a><a class="tag" href="/tags/rpc/">#RPC</a><a class="tag" href="/tags/microservices/">#微服务</a><a class="tag" href="/tags/go/">#Go</a>    </div>
+
+    <div class="post-nav">
+      <a href="/posts/xa-distributed-transaction/">
+        <span class="dir">← 上一篇 · 2022-11-16</span>
+        <span class="ttl">6 张图带你彻底搞懂分布式事务 XA 模式</span>
+      </a>
+<div class="empty"></div>    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 6 篇文章 · 构建于 2026-09-24 15:42</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

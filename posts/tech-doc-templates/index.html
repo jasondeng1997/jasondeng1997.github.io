@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>写技术文档的 5 个模板：让半年后的自己看得懂 — JasonDeng 的技术随笔</title>
+<meta name="description" content="设计文档、故障复盘、README、源码分析、变更记录——这 5 类技术文档各有固定的信息骨架。给出可直接复制的模板，以及一条判断&#34;该不该写文档&#34;的标准。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="工程实践,技术写作,效率,团队协作">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/tech-doc-templates/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="写技术文档的 5 个模板：让半年后的自己看得懂">
+<meta property="og:description" content="设计文档、故障复盘、README、源码分析、变更记录——这 5 类技术文档各有固定的信息骨架。给出可直接复制的模板，以及一条判断&#34;该不该写文档&#34;的标准。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/tech-doc-templates/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "\u5199\u6280\u672f\u6587\u6863\u7684 5 \u4e2a\u6a21\u677f\uff1a\u8ba9\u534a\u5e74\u540e\u7684\u81ea\u5df1\u770b\u5f97\u61c2",
+  "description": "\u8bbe\u8ba1\u6587\u6863\u3001\u6545\u969c\u590d\u76d8\u3001README\u3001\u6e90\u7801\u5206\u6790\u3001\u53d8\u66f4\u8bb0\u5f55\u2014\u2014\u8fd9 5 \u7c7b\u6280\u672f\u6587\u6863\u5404\u6709\u56fa\u5b9a\u7684\u4fe1\u606f\u9aa8\u67b6\u3002\u7ed9\u51fa\u53ef\u76f4\u63a5\u590d\u5236\u7684\u6a21\u677f\uff0c\u4ee5\u53ca\u4e00\u6761\u5224\u65ad\"\u8be5\u4e0d\u8be5\u5199\u6587\u6863\"\u7684\u6807\u51c6\u3002",
+  "datePublished": "2026-06-05",
+  "dateModified": "2026-06-05",
+  "url": "https://jasondeng1997.github.io/posts/tech-doc-templates/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "\u5de5\u7a0b\u5b9e\u8df5,\u6280\u672f\u5199\u4f5c,\u6548\u7387,\u56e2\u961f\u534f\u4f5c",
+  "articleSection": "\u5de5\u7a0b\u5b9e\u8df5"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2026-06-05</span>
+      </nav>
+      <h1>写技术文档的 5 个模板：让半年后的自己看得懂</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">设计文档、故障复盘、README、源码分析、变更记录——这 5 类技术文档各有固定的信息骨架。给出可直接复制的模板，以及一条判断&#34;该不该写文档&#34;的标准。</p>      <div class="article-head__meta">
+        <span>2026-06-05</span>
+        <span class="dot"></span>
+        <span>3 分钟阅读</span>
+<span class="dot"></span><span>约 862 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/tech-writing/">#技术写作</a><a class="tag" href="/tags/productivity/">#效率</a><a class="tag" href="/tags/teamwork/">#团队协作</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p>技术文档最难的不是"写得好"，而是<strong>信息齐了没</strong>。内容散落的文档，写得再漂亮，半年后还是要重新啃代码。</p>
+<p>这两年我把自己反复用的文档骨架整理成了 5 个模板。它们的共同点是：<strong>每一节都在回答一个具体的决策问题</strong>，而不是"把知道的都倒出来"。</p>
+<h2 id="_1">判断标准：这份文档要不要写？</h2>
+<p>先给一条我认为最实用的标准：</p>
+<blockquote>
+<p><strong>如果一个决策，三个月后的你需要重新推演一遍才能理解，那就必须写下来。</strong></p>
+</blockquote>
+<p>按这个标准过滤，真正需要写的其实只有三类：</p>
+<ol>
+<li><strong>决策类</strong>：为什么选 A 不选 B（技术选型、架构方案）</li>
+<li><strong>约定类</strong>：大家必须一致遵守的东西（接口规范、命名规则、目录结构）</li>
+<li><strong>非显然的事实类</strong>：读代码看不出来的东西（历史包袱、踩过的坑、外部依赖的口头约定）</li>
+</ol>
+<p>至于"这个函数做了什么"——代码本身就能说清楚，不需要文档。</p>
+<h2 id="design-doc">模板一：设计文档（Design Doc）</h2>
+<p>用在<strong>动手之前</strong>。它的核心价值是让评审人能提问。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># [模块名] 设计文档</span>
+
+<span class="k">-</span><span class="w"> </span>作者 / 日期 / 状态：[草稿 | 评审中 | 已定稿]
+<span class="k">-</span><span class="w"> </span>评审人：
+
+<span class="gu">## 1. 背景与问题</span>
+用 3 句话说清：现在的痛点是什么、影响了谁、不解决会怎样。
+（不要写"为了提升系统性能"这种废话，要写"订单导出在 10 万行以上时超时，每周约 30 次工单"）
+
+<span class="gu">## 2. 目标与非目标</span>
+<span class="gu">### 目标</span>
+<span class="k">-</span><span class="w"> </span>可量化的目标，如：导出 50 万行 P99 &lt; 5s
+<span class="gu">### 非目标（同样重要）</span>
+<span class="k">-</span><span class="w"> </span>本次不解决的历史订单迁移
+<span class="k">-</span><span class="w"> </span>不做实时导出
+
+<span class="gu">## 3. 方案设计</span>
+<span class="gu">### 3.1 整体架构</span>
+（架构图 / 时序图）
+
+<span class="gu">### 3.2 关键流程</span>
+<span class="gu">### 3.3 数据模型变更</span>
+<span class="gu">### 3.4 接口定义</span>
+
+<span class="gu">## 4. 备选方案与取舍</span>
+| 方案 | 优点 | 缺点 | 结论 |
+| --- | --- | --- | --- |
+| 方案 A | | | ✅ 采用 |
+| 方案 B | | | ❌ 否决，原因：|
+
+<span class="gu">## 5. 影响面</span>
+<span class="k">-</span><span class="w"> </span>对上游/下游接口的影响
+<span class="k">-</span><span class="w"> </span>对现有数据的影响（是否需要刷数据、回滚方案）
+<span class="k">-</span><span class="w"> </span>对运维的影响（新依赖、新监控项、新告警）
+
+<span class="gu">## 6. 风险评估</span>
+| 风险 | 概率 | 影响 | 应对 |
+| --- | --- | --- | --- |
+
+<span class="gu">## 7. 上线计划</span>
+<span class="k">-</span><span class="w"> </span>灰度策略 / 开关设计
+<span class="k">-</span><span class="w"> </span>回滚方案（必须写！）
+<span class="k">-</span><span class="w"> </span>验收标准
+
+<span class="gu">## 8. 待讨论问题</span>
+<span class="k">- [ ]</span> xxx 需要和基础架构组确认
+</code></pre></div>
+
+<p><strong>要点</strong>：第 4 节"备选方案与取舍"是设计文档的灵魂。没有备选方案的文档，本质是"通知"而不是"设计"。</p>
+<h2 id="postmortem">模板二：故障复盘（Postmortem）</h2>
+<p>核心原则：<strong>对事不对人</strong>。一旦开始追责，后续的复盘都会失真。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># [YYYY-MM-DD] [故障标题] 复盘</span>
+
+<span class="k">-</span><span class="w"> </span>影响时长：14:03 - 14:37（34 分钟）
+<span class="k">-</span><span class="w"> </span>影响范围：订单查询接口 100% 失败，约 1.2 万次请求
+<span class="k">-</span><span class="w"> </span>严重级别：P1
+<span class="k">-</span><span class="w"> </span>处理人：
+
+<span class="gu">## 1. 时间线（精确到分钟）</span>
+| 时间 | 事件 |
+| --- | --- |
+| 13:58 | 发布 v2.3.1，包含索引变更 |
+| 14:03 | 监控告警：order-query P99 突增至 8s |
+| 14:05 | 值班同学确认，开始排查 |
+| ... | ... |
+| 14:37 | 回滚完成，服务恢复 |
+
+<span class="gu">## 2. 根因（Root Cause）</span>
+分三层说：
+<span class="k">-</span><span class="w"> </span><span class="gs">**直接原因**</span>：新增索引的 DDL 在 2000 万行表上执行，锁表 30s
+<span class="k">-</span><span class="w"> </span><span class="gs">**根本原因**</span>：DDL 变更没有走 Online DDL 规范，且未在预发验证
+<span class="k">-</span><span class="w"> </span><span class="gs">**系统性原因**</span>：发布流程缺少"大表 DDL 审批"环节
+
+<span class="gu">## 3. 为什么没被提前发现</span>
+（这一节比根因更重要）
+<span class="k">-</span><span class="w"> </span>预发数据量只有线上的 1/100，无法暴露
+<span class="k">-</span><span class="w"> </span>监控只有 P99 告警，没有 DDL 执行时长指标
+
+<span class="gu">## 4. 改进项</span>
+| 改进项 | 类型 | 负责人 | 截止日期 |
+| --- | --- | --- | --- |
+| 大表 DDL 必须使用 gh-ost | 流程 | <span class="ni">@xxx</span> | 10-01 |
+| 发布检查项加 DDL 审批 | 工具 | <span class="ni">@xxx</span> | 09-30 |
+| 补 DDL 执行时长监控 | 监控 | <span class="ni">@xxx</span> | 09-25 |
+
+<span class="gu">## 5. 附录</span>
+<span class="k">-</span><span class="w"> </span>相关日志、监控截图、变更单链接
+</code></pre></div>
+
+<p><strong>要点</strong>：第 3 节"为什么没被提前发现"最容易被省略，但它才是防止同类故障复发的关键。</p>
+<h2 id="readme">模板三：README</h2>
+<p>README 的读者是"第一次来到这个仓库的人"，包括三个月后的你自己。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># 项目名</span>
+
+一句话说明这个项目是做什么的。
+
+<span class="gu">## 快速开始</span>
+<span class="sb">```bash</span>
+<span class="c1"># 三条命令以内跑起来，超过三条说明环境配置有问题</span>
+git<span class="w"> </span>clone<span class="w"> </span>xxx<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>xxx
+make<span class="w"> </span>dev
+open<span class="w"> </span>http://localhost:8080
+<span class="sb">```</span>
+
+<span class="gu">## 环境要求</span>
+| 依赖 | 版本 | 说明 |
+| --- | --- | --- |
+
+<span class="gu">## 常用命令</span>
+| 命令 | 作用 |
+| --- | --- |
+| <span class="sb">`make test`</span> | 跑单测 |
+| <span class="sb">`make lint`</span> | 静态检查 |
+| <span class="sb">`make build`</span> | 构建二进制 |
+
+<span class="gu">## 项目结构</span>
+（只写"为什么"这么分，不写"是什么"）
+<span class="k">-</span><span class="w"> </span><span class="sb">`internal/service`</span>：业务编排，不直接访问 DB
+<span class="k">-</span><span class="w"> </span><span class="sb">`internal/repo`</span>：数据访问，禁止写业务判断
+<span class="k">-</span><span class="w"> </span><span class="sb">`internal/adapter`</span>：外部依赖适配，方便测试打桩
+
+<span class="gu">## 配置说明</span>
+关键配置项 + 默认值 + 是否必填。
+
+<span class="gu">## 常见问题</span>
+<span class="k">-</span><span class="w"> </span>启动报 xxx：因为 aaa，执行 bbb 解决
+
+<span class="gu">## 相关文档</span>
+<span class="k">-</span><span class="w"> </span>设计文档链接
+<span class="k">-</span><span class="w"> </span>部署文档链接
+</code></pre></div>
+
+<p><strong>要点</strong>：README 里最该有的两样东西是<strong>"三条命令跑起来"</strong>和<strong>"项目结构为什么这么分"</strong>。</p>
+<h2 id="_2">模板四：源码分析</h2>
+<p>用于读中间件、框架源码后的沉淀。关键是<strong>留下"结论"而不是"过程"</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># [组件名] 源码分析：[某个具体机制]</span>
+
+<span class="k">-</span><span class="w"> </span>版本：v2.3.1（务必写明版本，源码分析脱离版本等于没写）
+<span class="k">-</span><span class="w"> </span>阅读入口：`xxx#yyy`
+
+<span class="gu">## 结论先行</span>
+用 5 句话以内说清这个机制的运作方式。
+（半年后你只需要看这一段）
+
+<span class="gu">## 核心类图 / 时序图</span>
+
+<span class="gu">## 关键流程拆解</span>
+<span class="gu">### 步骤 1：xxx</span>
+代码位置：`a/b/C.java#L120`
+做了什么 + <span class="gs">**为什么这么做**</span>
+
+<span class="gu">### 步骤 2：xxx</span>
+
+<span class="gu">## 设计亮点</span>
+<span class="k">-</span><span class="w"> </span>用 xxx 换取了 yyy（记住：任何设计都是取舍）
+
+<span class="gu">## 我踩过的坑</span>
+<span class="k">-</span><span class="w"> </span>配置 xxx 时必须同时设 yyy，否则不生效
+
+<span class="gu">## 与其他实现的对比</span>
+</code></pre></div>
+
+<p><strong>要点</strong>：一定要有"结论先行"和"设计亮点"两节。前者省下未来的时间，后者才是真正的理解。</p>
+<h2 id="changelog">模板五：变更记录（CHANGELOG）</h2>
+<div class="codehilite"><pre><span></span><code><span class="gu">## [2.3.1] - 2026-06-05</span>
+
+<span class="gu">### 新增</span>
+<span class="k">-</span><span class="w"> </span>支持订单批量导出（上限 50 万行）
+
+<span class="gu">### 变更</span>
+<span class="k">-</span><span class="w"> </span><span class="gs">**不兼容变更**</span>：<span class="sb">`POST /api/order/query`</span> 的 <span class="sb">`status`</span> 字段由 int 改为 string
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>迁移方式：见 [<span class="nt">迁移指南</span>](<span class="na">./migration.md</span>)
+
+<span class="gu">### 修复</span>
+<span class="k">-</span><span class="w"> </span>修复分页查询在最后一页返回空数组的问题（#1234）
+
+<span class="gu">### 安全</span>
+<span class="k">-</span><span class="w"> </span>升级 log4j 至 2.17.2
+</code></pre></div>
+
+<p><strong>要点</strong>：<strong>不兼容变更必须单独标注</strong>，并给出迁移方式。这是对使用者最基本的尊重。</p>
+<h2 id="_3">一套通用的写作习惯</h2>
+<p>最后分享四个我一直在用的习惯：</p>
+<ol>
+<li><strong>先写结论，再写推导。</strong> 用"倒金字塔"结构：结论 → 依据 → 数据 → 附录。</li>
+<li><strong>每张图都要有 caption。</strong> 图单独发出去（比如在 IM 里转发）时，没有 caption 就是废图。</li>
+<li><strong>代码块必须标注语言。</strong> 否则渲染出来没有高亮，可读性差一大截。</li>
+<li><strong>写完通读一遍，删掉所有"其实""应该""大概"。</strong> 这类词会让文档失去可信度。</li>
+</ol>
+<h2 id="_4">小结</h2>
+<table>
+<thead>
+<tr>
+<th>文档类型</th>
+<th>写在哪</th>
+<th>核心章节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>设计文档</td>
+<td>动手前</td>
+<td>备选方案与取舍</td>
+</tr>
+<tr>
+<td>故障复盘</td>
+<td>故障后 24h 内</td>
+<td>为什么没被提前发现</td>
+</tr>
+<tr>
+<td>README</td>
+<td>首次提交时</td>
+<td>快速开始</td>
+</tr>
+<tr>
+<td>源码分析</td>
+<td>读完源码后</td>
+<td>结论先行</td>
+</tr>
+<tr>
+<td>变更记录</td>
+<td>每次发布</td>
+<td>不兼容变更</td>
+</tr>
+</tbody>
+</table>
+<p>文档不是写给领导看的，是写给<strong>未来那个已经忘记上下文的自己</strong>看的。按这个心态写，自然就写清楚了。</p>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#_1">判断标准：这份文档要不要写？</a></li><li><a href="#design-doc">模板一：设计文档（Design Doc）</a></li><li><a href="#postmortem">模板二：故障复盘（Postmortem）</a></li><li><a href="#readme">模板三：README</a></li><li><a href="#_2">模板四：源码分析</a></li><li><a href="#changelog">模板五：变更记录（CHANGELOG）</a></li><li><a href="#_3">一套通用的写作习惯</a></li><li><a href="#_4">小结</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/tech-writing/">#技术写作</a><a class="tag" href="/tags/productivity/">#效率</a><a class="tag" href="/tags/teamwork/">#团队协作</a>    </div>
+
+    <div class="post-nav">
+      <a href="/posts/distributed-id-generation/">
+        <span class="dir">← 上一篇 · 2026-07-12</span>
+        <span class="ttl">分布式 ID 生成方案横评：雪花、号段与 Leaf</span>
+      </a>
+      <a href="/posts/xa-distributed-transaction/" style="text-align:right">
+        <span class="dir">下一篇 · 2022-11-16 →</span>
+        <span class="ttl">6 张图带你彻底搞懂分布式事务 XA 模式</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 6 篇文章 · 构建于 2026-09-24 15:42</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

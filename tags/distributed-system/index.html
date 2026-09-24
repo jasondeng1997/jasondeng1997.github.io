@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>JasonDeng 的技术随笔 — 通用技术随笔 · 后端工程 · 分布式系统 · 中间件源码</title>
-<meta name="description" content="JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。">
+<title>#分布式系统 标签下的文章 — JasonDeng 的技术随笔</title>
+<meta name="description" content="JasonDeng 的技术随笔 中标签为「分布式系统」的全部文章，共 1 篇。">
 <meta name="author" content="JasonDeng">
 <meta name="keywords" content="JasonDeng,技术博客,后端,Go,Java,分布式,中间件,微服务,RocketMQ,dubbo-go">
 <meta name="theme-color" content="#ffffff">
 <meta name="generator" content="custom-static-generator">
-<link rel="canonical" href="https://jasondeng1997.github.io/">
+<link rel="canonical" href="https://jasondeng1997.github.io/tags/distributed-system/">
 
 <link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
 <link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
@@ -19,7 +19,7 @@
 <meta property="og:site_name" content="JasonDeng 的技术随笔">
 <meta property="og:title" content="JasonDeng 的技术随笔">
 <meta property="og:description" content="JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。">
-<meta property="og:url" content="https://jasondeng1997.github.io/">
+<meta property="og:url" content="https://jasondeng1997.github.io/tags/distributed-system/">
 <meta property="og:locale" content="zh_CN">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">
@@ -46,9 +46,9 @@
       </span>
     </a>
     <nav class="site-nav" id="site-nav" aria-label="主导航">
-        <a href="/" aria-current="page">首页</a>
+        <a href="/">首页</a>
         <a href="/archive/">归档</a>
-        <a href="/tags/">标签</a>
+        <a href="/tags/" aria-current="page">标签</a>
         <a href="/about/">关于</a>
         <a href="/admin/">写文章</a>
     </nav>
@@ -65,61 +65,19 @@
 </header>
 
 <main id="main">
-<section class="hero">
+<section class="page-head">
   <div class="wrap">
-    <span class="hero__eyebrow">最近更新 2026-09-18</span>
-    <h1>写点<span class="grad">真正跑过</span>的技术笔记</h1>
-    <p class="lead">2020 年毕业于南京某 211，现就职于上海某芯片国企，从事 IoT 相关研发。主力语言 Java / Go，喜欢读中间件源码，也喜欢把踩过的坑写成文档。</p>
-    <div class="hero__actions">
-      <a class="btn btn--primary" href="/archive/">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16v14H4zM4 9h16M9 5v14"/></svg>
-        浏览全部文章
-      </a>
-      <button class="btn" type="button" data-open-search>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        搜索文章
-      </button>
-      <a class="btn" href="https://github.com/jasondeng1997" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 00-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.5 9.5 0 015 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0012 2z"/></svg>
-        GitHub
-      </a>
-    </div>
-    <div class="hero__stats">
-      <div><div class="stat__num">6</div><div class="stat__label">篇文章</div></div>
-      <div><div class="stat__num">19</div><div class="stat__label">个标签</div></div>
-      <div><div class="stat__num">6,812</div><div class="stat__label">字累计</div></div>
-      <div><div class="stat__num">5</div><div class="stat__label">年跨度</div></div>
-    </div>
+    <nav class="breadcrumb" aria-label="面包屑" style="margin-bottom:14px">
+      <a href="/">首页</a><span>/</span><a href="/tags/">标签</a><span>/</span><span>#分布式系统</span>
+    </nav>
+    <h1>#分布式系统</h1>
+    <p>共 1 篇相关文章。</p>
   </div>
 </section>
 
 <section class="section">
   <div class="wrap">
-    <div class="section__head">
-      <h2>最新文章</h2>
-      <a class="more" href="/archive/">全部 6 篇 →</a>
-    </div>
     <div class="post-list">
-<a class="post-card" href="/posts/go-concurrency-context-errgroup/">
-  <div class="post-card__meta">
-    <span>2026-09-18</span>
-    <span class="dot"></span>
-    <span>3 分钟阅读</span>
-<span class="dot"></span><span>1140 字</span>  </div>
-  <h3>Go 服务里的并发控制：从 context 到 errgroup 的工程实践</h3>
-<p>把 context 当成&#34;取消信号广播器&#34;而不是参数袋子，用 errgroup 管住一批 goroutine 的生命周期，再配合 semaphore 限流——一套可以直接抄进项目的并发控制骨架。</p>  <div class="post-card__tags">
-<span class="tag">#Go</span><span class="tag">#并发编程</span><span class="tag">#工程实践</span><span class="tag">#后端</span>  </div>
-</a>
-<a class="post-card" href="/posts/mysql-index-not-used-cases/">
-  <div class="post-card__meta">
-    <span>2026-08-20</span>
-    <span class="dot"></span>
-    <span>3 分钟阅读</span>
-<span class="dot"></span><span>1221 字</span>  </div>
-  <h3>MySQL 索引失效的 12 个真实场景复盘</h3>
-<p>把线上慢查询日志里反复出现的索引失效场景整理成 12 条：每条给出复现 SQL、为什么失效、以及改写成什么样。文末附一套排查 checklist。</p>  <div class="post-card__tags">
-<span class="tag">#MySQL</span><span class="tag">#数据库</span><span class="tag">#性能优化</span><span class="tag">#后端</span>  </div>
-</a>
 <a class="post-card" href="/posts/distributed-id-generation/">
   <div class="post-card__meta">
     <span>2026-07-12</span>
@@ -130,36 +88,6 @@
 <p>自增主键在分库分表下不够用了怎么办？把 UUID、数据库自增、号段模式、雪花算法、美团 Leaf、百度 UidGenerator 放在一起，从趋势递增、时钟回拨、可用性三个维度做横向对比，并给出选型决策树。</p>  <div class="post-card__tags">
 <span class="tag">#分布式系统</span><span class="tag">#架构设计</span><span class="tag">#后端</span><span class="tag">#高并发</span>  </div>
 </a>
-<a class="post-card" href="/posts/tech-doc-templates/">
-  <div class="post-card__meta">
-    <span>2026-06-05</span>
-    <span class="dot"></span>
-    <span>3 分钟阅读</span>
-<span class="dot"></span><span>862 字</span>  </div>
-  <h3>写技术文档的 5 个模板：让半年后的自己看得懂</h3>
-<p>设计文档、故障复盘、README、源码分析、变更记录——这 5 类技术文档各有固定的信息骨架。给出可直接复制的模板，以及一条判断&#34;该不该写文档&#34;的标准。</p>  <div class="post-card__tags">
-<span class="tag">#工程实践</span><span class="tag">#技术写作</span><span class="tag">#效率</span><span class="tag">#团队协作</span>  </div>
-</a>
-<a class="post-card" href="/posts/xa-distributed-transaction/">
-  <div class="post-card__meta">
-    <span>2022-11-16</span>
-    <span class="dot"></span>
-    <span>4 分钟阅读</span>
-<span class="dot"></span><span>1657 字</span>  </div>
-  <h3>6 张图带你彻底搞懂分布式事务 XA 模式</h3>
-<p>从 XA 协议到两阶段/三阶段提交的取舍，再顺着 Seata 的数据源代理一路读到底层 XA end/prepare 的源码，把 XA 模式为什么对业务无侵入讲清楚。</p>  <div class="post-card__tags">
-<span class="tag">#分布式事务</span><span class="tag">#Seata</span><span class="tag">#MySQL</span><span class="tag">#微服务</span>  </div>
-</a>
-<a class="post-card" href="/posts/dubbo-go-rocketmq-rpc/">
-  <div class="post-card__meta">
-    <span>2022-01-22</span>
-    <span class="dot"></span>
-    <span>2 分钟阅读</span>
-<span class="dot"></span><span>676 字</span>  </div>
-  <h3>dubbo-go 引入 RocketMQ 作为 RPC 的设计文档</h3>
-<p>把 RocketMQ 当作 RPC 通道来接进 dubbo-go：注册中心与 protocol 两个模块怎么拆、topic 粒度选方法还是选类、元数据往哪塞，以及条件路由为什么建议第一期不做。</p>  <div class="post-card__tags">
-<span class="tag">#dubbo-go</span><span class="tag">#RocketMQ</span><span class="tag">#RPC</span><span class="tag">#微服务</span><span class="tag">#Go</span>  </div>
-</a>
 </div>
 
   </div>
@@ -168,7 +96,7 @@
 <section class="section">
   <div class="wrap">
     <div class="section__head">
-      <h2>按标签浏览</h2>
+      <h2>换个标签看看</h2>
       <a class="more" href="/tags/">全部标签 →</a>
     </div>
     <div class="tag-cloud">
@@ -182,7 +110,6 @@
     <a class="tag" href="/tags/seata/">#Seata<span class="count">1</span></a>
     <a class="tag" href="/tags/dubbo-go/">#dubbo-go<span class="count">1</span></a>
     <a class="tag" href="/tags/distributed-transaction/">#分布式事务<span class="count">1</span></a>
-    <a class="tag" href="/tags/distributed-system/">#分布式系统<span class="count">1</span></a>
     <a class="tag" href="/tags/teamwork/">#团队协作<span class="count">1</span></a>
     <a class="tag" href="/tags/concurrency/">#并发编程<span class="count">1</span></a>
     <a class="tag" href="/tags/performance/">#性能优化<span class="count">1</span></a>
@@ -193,19 +120,6 @@
     <a class="tag" href="/tags/high-concurrency/">#高并发<span class="count">1</span></a>
 </div>
 
-  </div>
-</section>
-
-<section class="section">
-  <div class="wrap">
-    <div class="section__head">
-      <h2>关于这个站</h2>
-    </div>
-    <div class="prose">
-      <p>这里是我（JasonDeng，上海）的技术笔记。主力语言 Java 和 Go，做 IoT 相关研发，喜欢读中间件源码，也喜欢把踩过的坑写成能复用的文档。</p>
-      <p>站点用 Markdown 写作，我自己写了个静态生成器负责渲染，推送到 GitHub 后自动构建发布。文章按<strong>标签</strong>归类，也可以用右上角的搜索（快捷键 <code>/</code>）直接找。</p>
-      <p><a href="/about/">更多关于我 →</a></p>
-    </div>
   </div>
 </section>
 </main>

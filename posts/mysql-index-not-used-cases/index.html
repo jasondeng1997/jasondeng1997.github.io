@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MySQL 索引失效的 12 个真实场景复盘 — JasonDeng 的技术随笔</title>
+<meta name="description" content="把线上慢查询日志里反复出现的索引失效场景整理成 12 条：每条给出复现 SQL、为什么失效、以及改写成什么样。文末附一套排查 checklist。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="MySQL,数据库,性能优化,后端">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/mysql-index-not-used-cases/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="MySQL 索引失效的 12 个真实场景复盘">
+<meta property="og:description" content="把线上慢查询日志里反复出现的索引失效场景整理成 12 条：每条给出复现 SQL、为什么失效、以及改写成什么样。文末附一套排查 checklist。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/mysql-index-not-used-cases/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "MySQL \u7d22\u5f15\u5931\u6548\u7684 12 \u4e2a\u771f\u5b9e\u573a\u666f\u590d\u76d8",
+  "description": "\u628a\u7ebf\u4e0a\u6162\u67e5\u8be2\u65e5\u5fd7\u91cc\u53cd\u590d\u51fa\u73b0\u7684\u7d22\u5f15\u5931\u6548\u573a\u666f\u6574\u7406\u6210 12 \u6761\uff1a\u6bcf\u6761\u7ed9\u51fa\u590d\u73b0 SQL\u3001\u4e3a\u4ec0\u4e48\u5931\u6548\u3001\u4ee5\u53ca\u6539\u5199\u6210\u4ec0\u4e48\u6837\u3002\u6587\u672b\u9644\u4e00\u5957\u6392\u67e5 checklist\u3002",
+  "datePublished": "2026-08-20",
+  "dateModified": "2026-08-20",
+  "url": "https://jasondeng1997.github.io/posts/mysql-index-not-used-cases/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "MySQL,\u6570\u636e\u5e93,\u6027\u80fd\u4f18\u5316,\u540e\u7aef",
+  "articleSection": "MySQL"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2026-08-20</span>
+      </nav>
+      <h1>MySQL 索引失效的 12 个真实场景复盘</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">把线上慢查询日志里反复出现的索引失效场景整理成 12 条：每条给出复现 SQL、为什么失效、以及改写成什么样。文末附一套排查 checklist。</p>      <div class="article-head__meta">
+        <span>2026-08-20</span>
+        <span class="dot"></span>
+        <span>3 分钟阅读</span>
+<span class="dot"></span><span>约 1221 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/mysql/">#MySQL</a><a class="tag" href="/tags/database/">#数据库</a><a class="tag" href="/tags/performance/">#性能优化</a><a class="tag" href="/tags/backend/">#后端</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p>索引失效这个话题老生常谈，但真到线上抓慢查询时，往往还是会愣一下。下面这 12 个场景全部来自我自己处理过的慢查询日志，按"最容易踩"排序。</p>
+<p>先约定一张演示表和索引：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="o">`</span><span class="n">t_order</span><span class="o">`</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="w">          </span><span class="nb">BIGINT</span><span class="w">       </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="n">AUTO_INCREMENT</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">order_no</span><span class="o">`</span><span class="w">    </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="w">  </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="w">     </span><span class="nb">BIGINT</span><span class="w">       </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="w">      </span><span class="n">TINYINT</span><span class="w">      </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">amount</span><span class="o">`</span><span class="w">      </span><span class="nb">DECIMAL</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">remark</span><span class="o">`</span><span class="w">      </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="w">  </span><span class="n">DATETIME</span><span class="w">     </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="p">),</span>
+<span class="w">  </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_user_status_time</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="p">),</span>
+<span class="w">  </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_order_no</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">order_no</span><span class="o">`</span><span class="p">),</span>
+<span class="w">  </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_created_at</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="p">)</span>
+<span class="p">)</span><span class="w"> </span><span class="n">ENGINE</span><span class="o">=</span><span class="n">InnoDB</span><span class="p">;</span>
+</code></pre></div>
+
+<h2 id="1">1. 联合索引不满足最左前缀</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 不走 idx_user_status_time</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="s1">'2026-01-01'</span><span class="p">;</span>
+</code></pre></div>
+
+<p>联合索引 <code>(user_id, status, created_at)</code> 的 B+ 树是按 <code>user_id</code> 先排序的。跳过最左列 <code>user_id</code>，后面的列在全局是无序的，无法用树来定位。</p>
+<p><strong>改法</strong>：补上 <code>user_id</code>，或者为这个查询单独建 <code>(status, created_at)</code>。</p>
+<blockquote>
+<p>注意：MySQL 8.0 有 <strong>索引跳跃扫描</strong>（Index Skip Scan），在某些条件下跳过最左列也能用上索引，但它的适用条件很苛刻（最左列基数极低），不要把优化押在它身上。</p>
+</blockquote>
+<h2 id="2">2. 在索引列上做运算或函数</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 失效：对索引列做了函数运算</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="nb">DATE</span><span class="p">(</span><span class="n">created_at</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'2026-01-01'</span><span class="p">;</span>
+<span class="c1">-- 失效：对索引列做了运算</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100</span><span class="p">;</span>
+</code></pre></div>
+
+<p>索引里存的是原始值，套了函数之后没法用 B+ 树的有序性定位。</p>
+<p><strong>改法</strong>：把运算挪到常量一侧，改写成范围查询。</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="s1">'2026-01-01 00:00:00'</span>
+<span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&lt;</span><span class="w">  </span><span class="s1">'2026-01-02 00:00:00'</span><span class="p">;</span>
+</code></pre></div>
+
+<h2 id="3">3. 隐式类型转换</h2>
+<p>这是线上最常见、也最隐蔽的一种。<code>order_no</code> 是 <code>VARCHAR</code>，如果传了数字：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 失效：字符串列 vs 数字常量，MySQL 会把列转成 double 比较</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">order_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20260101001</span><span class="p">;</span>
+</code></pre></div>
+
+<p><code>EXPLAIN</code> 的 <code>Extra</code> 里往往不会明说，但 <code>key</code> 会从 <code>idx_order_no</code> 变成空。反过来，<strong>数字列传字符串常量是可以走索引的</strong>（常量被转换，列保持原样）。</p>
+<p><strong>改法</strong>：参数类型与列类型严格对齐。如果是 MyBatis，检查一下 <code>#{}</code> 传进来的 Java 类型。</p>
+<h2 id="4-like">4. <code>LIKE</code> 以通配符开头</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 失效</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">remark</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">'%退款%'</span><span class="p">;</span>
+<span class="c1">-- 有效（前缀匹配）</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">remark</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">'退款%'</span><span class="p">;</span>
+</code></pre></div>
+
+<p><strong>改法</strong>：
+- 前缀匹配需求 → 保持 <code>LIKE 'xxx%'</code>。
+- 中缀/后缀搜索 → 使用全文索引（<code>FULLTEXT</code> + <code>MATCH ... AGAINST</code>），或者把搜索交给 ES。
+- 数据量不大（几万行以内）时，全表扫也未必是问题，别过早优化。</p>
+<h2 id="5-or">5. <code>OR</code> 连接的条件有一侧没索引</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 只要 status 上没有索引，整个查询就可能退化成全表扫</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1001</span><span class="w"> </span><span class="k">OR</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+</code></pre></div>
+
+<p><strong>改法</strong>：两侧都建索引，或者拆成两条 SQL 在应用层 <code>UNION ALL</code>。</p>
+<h2 id="6-not-in-not-like">6. 使用 <code>NOT IN</code> / <code>!=</code> / <code>NOT LIKE</code></h2>
+<p>这类否定条件通常意味着"要扫描大部分数据"，优化器判断走索引再回表不如直接全表扫。</p>
+<p><strong>改法</strong>：如果否定条件的候选集很小，改写成肯定条件：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 原来是 status != 1</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</code></pre></div>
+
+<h2 id="7-is-null-is-not-null">7. <code>IS NULL</code> / <code>IS NOT NULL</code> 的坑</h2>
+<p>单列索引中 <code>IS NULL</code> 是可以走索引的。但如果是<strong>联合索引</strong>，而 <code>NULL</code> 列不在最左，情况就变了。另外 <code>IS NOT NULL</code> 在 <code>NULL</code> 值占比很低时通常也会全表扫。</p>
+<p><strong>改法</strong>：数据库设计阶段就给关键列加 <code>NOT NULL DEFAULT</code>，从根上避免。</p>
+<h2 id="8">8. 范围查询之后的列无法用于排序</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 能用索引过滤，但 ORDER BY 用不上索引排序</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1001</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="s1">'2026-01-01'</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">status</span><span class="p">;</span>
+</code></pre></div>
+
+<p>联合索引 <code>(user_id, status, created_at)</code> 中，<code>created_at</code> 是范围条件，它的<strong>后面</strong>已经没有列了；而 <code>status</code> 在 <code>created_at</code> 之前，一旦 <code>created_at</code> 变成范围扫描，<code>status</code> 在结果集内就不再有序。</p>
+<p><strong>改法</strong>：调整索引列顺序。把等值条件列放前面，范围条件列放最后：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_user_status_time</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="p">)</span><span class="w">  </span><span class="c1">-- 已是正确顺序</span>
+<span class="c1">-- 如果 ORDER BY status 是主诉求，则建立 (user_id, created_at) 覆盖，或调整业务分页方式</span>
+</code></pre></div>
+
+<h2 id="9">9. 回表代价过高，优化器主动放弃索引</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 假设 status = 1 的数据占 90%</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span>
+</code></pre></div>
+
+<p>优化器会估算：走 <code>status</code> 索引拿到 90% 的主键，再逐行回表，成本高于直接全表扫 + <code>LIMIT</code> 提前结束。</p>
+<p><strong>改法</strong>：
+- 用<strong>覆盖索引</strong>消除回表：把查询需要的列加进索引。</p>
+<div class="codehilite"><pre><span></span><code><span class="k">ALTER</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">ADD</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="n">idx_status_cover</span><span class="w"> </span><span class="p">(</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">user_id</span><span class="p">,</span><span class="w"> </span><span class="n">amount</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span><span class="p">);</span>
+</code></pre></div>
+
+<ul>
+<li>或者接受全表扫——当 <code>status</code> 区分度真的很低时，强行走索引反而更慢。</li>
+</ul>
+<h2 id="10">10. 排序字段与索引顺序不一致</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 混合升降序，MySQL 8.0 之前无法用索引排序</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1001</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="k">ASC</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+
+<p>MySQL 8.0 起支持<strong>降序索引</strong>，可以显式声明：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_user_status_time_desc</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="w"> </span><span class="k">ASC</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="w"> </span><span class="k">DESC</span><span class="p">);</span>
+</code></pre></div>
+
+<p>8.0 之前只能靠额外排序（<code>Using filesort</code>）。</p>
+<h2 id="11">11. 统计信息过期导致选错执行计划</h2>
+<p>现象很典型：<strong>昨天还好好的 SQL，今天突然慢了</strong>，<code>EXPLAIN</code> 显示走了另一个索引。</p>
+<p><strong>排查</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SHOW</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="p">;</span><span class="w">              </span><span class="c1">-- 看 Cardinality 是否明显偏离实际</span>
+<span class="k">ANALYZE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">t_order</span><span class="p">;</span><span class="w">                </span><span class="c1">-- 重新采样统计信息</span>
+</code></pre></div>
+
+<p><strong>改法</strong>：
+- 对数据分布剧烈变化的表，定期 <code>ANALYZE TABLE</code>。
+- 关键 SQL 用 <code>FORCE INDEX</code> 兜底（但要记得它会锁死选择权，索引改名/删除后会报错）。
+- 上线前用 <code>EXPLAIN ANALYZE</code>（8.0.18+）看真实执行耗时，而不是只看估算。</p>
+<h2 id="12">12. 索引选择性太差</h2>
+<p>如果一个索引列的区分度极低（比如性别、状态位、是否删除），走索引的收益本身就很小。</p>
+<p><strong>判断方法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="k">DISTINCT</span><span class="w"> </span><span class="n">status</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">selectivity</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="p">;</span>
+</code></pre></div>
+
+<p>一般选择性低于 0.01 的列，单独建索引意义不大。可以考虑：
+- 与高选择性列组成联合索引
+- 改用位图、分区等其他手段</p>
+<h2 id="checklist">排查 checklist</h2>
+<p>遇到慢查询，我一般按这个顺序走：</p>
+<ol>
+<li><code>EXPLAIN</code> 看 <code>type</code>、<code>key</code>、<code>rows</code>、<code>Extra</code>（重点看 <code>Using filesort</code> / <code>Using temporary</code>）</li>
+<li><code>SHOW WARNINGS</code> 看优化器重写后的 SQL——经常能一眼看出为什么没用索引</li>
+<li>确认参数类型与列类型一致（隐式转换第一名）</li>
+<li>确认条件是否满足最左前缀、范围条件是否在最右</li>
+<li><code>SHOW INDEX</code> 看 <code>Cardinality</code>，必要时 <code>ANALYZE TABLE</code></li>
+<li>对高频 SQL 用 <code>EXPLAIN ANALYZE</code> 验证实际耗时</li>
+<li>数据量到百万级以上且是分析类查询，考虑加覆盖索引或换存储（ES / ClickHouse）</li>
+</ol>
+<h2 id="_1">小结</h2>
+<p>12 条里，真正高频的其实就三类：<strong>最左前缀不满足、索引列上做运算（含隐式类型转换）、回表代价过高</strong>。把这三类记住，剩下的靠 <code>EXPLAIN</code> + <code>SHOW WARNINGS</code> 基本都能定位。</p>
+<p>最后一句提醒：<strong>索引不是越多越好</strong>。每个索引都会让写入变慢、占用空间、增加优化器选错计划的概率。加索引前先问一句——这条 SQL 的 QPS 和耗时，真的到了需要优化的程度吗？</p>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#1">1. 联合索引不满足最左前缀</a></li><li><a href="#2">2. 在索引列上做运算或函数</a></li><li><a href="#3">3. 隐式类型转换</a></li><li><a href="#4-like">4. LIKE 以通配符开头</a></li><li><a href="#5-or">5. OR 连接的条件有一侧没索引</a></li><li><a href="#6-not-in-not-like">6. 使用 NOT IN / != / NOT LIKE</a></li><li><a href="#7-is-null-is-not-null">7. IS NULL / IS NOT NULL 的坑</a></li><li><a href="#8">8. 范围查询之后的列无法用于排序</a></li><li><a href="#9">9. 回表代价过高，优化器主动放弃索引</a></li><li><a href="#10">10. 排序字段与索引顺序不一致</a></li><li><a href="#11">11. 统计信息过期导致选错执行计划</a></li><li><a href="#12">12. 索引选择性太差</a></li><li><a href="#checklist">排查 checklist</a></li><li><a href="#_1">小结</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/mysql/">#MySQL</a><a class="tag" href="/tags/database/">#数据库</a><a class="tag" href="/tags/performance/">#性能优化</a><a class="tag" href="/tags/backend/">#后端</a>    </div>
+
+    <div class="post-nav">
+      <a href="/posts/go-concurrency-context-errgroup/">
+        <span class="dir">← 上一篇 · 2026-09-18</span>
+        <span class="ttl">Go 服务里的并发控制：从 context 到 errgroup 的工程实践</span>
+      </a>
+      <a href="/posts/distributed-id-generation/" style="text-align:right">
+        <span class="dir">下一篇 · 2026-07-12 →</span>
+        <span class="ttl">分布式 ID 生成方案横评：雪花、号段与 Leaf</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 6 篇文章 · 构建于 2026-09-24 15:42</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

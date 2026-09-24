@@ -1,0 +1,1293 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>JasonDeng 的技术随笔</title>
+    <link>https://jasondeng1997.github.io/</link>
+    <description>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</description>
+    <language>zh-CN</language>
+    <copyright>JasonDeng</copyright>
+    <lastBuildDate>Thu, 24 Sep 2026 09:00:00 +0800</lastBuildDate>
+    <atom:link href="https://jasondeng1997.github.io/feed.xml" rel="self" type="application/rss+xml"/>
+    <item>
+      <title>Go 服务里的并发控制：从 context 到 errgroup 的工程实践</title>
+      <link>https://jasondeng1997.github.io/posts/go-concurrency-context-errgroup/</link>
+      <guid isPermaLink="true">https://jasondeng1997.github.io/posts/go-concurrency-context-errgroup/</guid>
+      <pubDate>Fri, 18 Sep 2026 09:00:00 +0800</pubDate>
+      <description>把 context 当成&#34;取消信号广播器&#34;而不是参数袋子，用 errgroup 管住一批 goroutine 的生命周期，再配合 semaphore 限流——一套可以直接抄进项目的并发控制骨架。</description>
+      <content:encoded><![CDATA[<p>写 Go 服务最容易被低估的一件事，是<strong>给 goroutine 收尾</strong>。起协程谁都会，难的是在请求被取消、某个下游超时、进程收到 SIGTERM 的时候，让这一批协程干净地退出去。这篇文章把我自己项目里反复用的那套骨架整理出来。</p>
+<h2 id="context">一、先把 context 的角色摆正</h2>
+<p>很多代码里 <code>context.Context</code> 沦为了"参数袋子"——<code>ctx</code> 里塞 DB 连接、塞用户信息、塞 trace id。这会让函数签名失去意义，也会让取消语义变得模糊。</p>
+<p>我更推荐的划分：</p>
+<table>
+<thead>
+<tr>
+<th>内容</th>
+<th>放哪</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>取消信号 / deadline</td>
+<td><code>context</code></td>
+<td>它的本职</td>
+</tr>
+<tr>
+<td>trace id / request id</td>
+<td><code>context</code></td>
+<td>需要跨层透传，且是请求级生命周期</td>
+</tr>
+<tr>
+<td>用户身份</td>
+<td><code>context</code></td>
+<td>同上</td>
+</tr>
+<tr>
+<td>DB 连接池、配置对象</td>
+<td>结构体字段</td>
+<td>生命周期比请求长</td>
+</tr>
+<tr>
+<td>可选参数</td>
+<td>options 结构体</td>
+<td>与生命周期无关</td>
+</tr>
+</tbody>
+</table>
+<p>关键判据是<strong>生命周期</strong>：跟着单次请求生、跟着单次请求死的东西，才属于 context。</p>
+<p>一个常见的反面写法：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 反例：在库里用 context.Background() 切断了取消链</span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">Repo</span><span class="p">)</span><span class="w"> </span><span class="nx">GetUser</span><span class="p">(</span><span class="nx">id</span><span class="w"> </span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">User</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">()</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">db</span><span class="p">.</span><span class="nx">QueryContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">"select * from user where id = ?"</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>上游已经超时了，这个查询还在傻跑。正确做法是把 <code>ctx</code> 一路透传：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">Repo</span><span class="p">)</span><span class="w"> </span><span class="nx">GetUser</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="w"> </span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">User</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">db</span><span class="p">.</span><span class="nx">QueryContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">"select * from user where id = ?"</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<blockquote>
+<p>一个经验法则：<strong>凡是可能阻塞的调用，第一个参数都应该是 <code>ctx</code></strong>，包括 HTTP、DB、RPC、channel 收发、<code>time.Sleep</code>（用 <code>select</code> + <code>time.After</code> 替代）。</p>
+</blockquote>
+<h2 id="context_1">二、context 的三条纪律</h2>
+<ol>
+<li><strong>谁创建，谁 cancel。</strong> <code>context.WithCancel</code> / <code>WithTimeout</code> 返回的 <code>cancel</code> 必须被调用，否则会泄漏 timer。稳妥写法是紧跟着 <code>defer cancel()</code>：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">parent</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span>
+<span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span><span class="w"> </span><span class="c1">// 即使提前 return 也不会泄漏</span>
+</code></pre></div>
+
+<ol start="2">
+<li>
+<p><strong>不把 context 存进结构体。</strong> 唯一的例外是 struct 本身就是"一次请求的上下文载体"，而且不会跨请求复用。</p>
+</li>
+<li>
+<p><strong>不用 <code>nil</code> context。</strong> 不确定就用 <code>context.TODO()</code>，它的存在就是为了让代码可编译、又可被搜索出来。</p>
+</li>
+</ol>
+<h2 id="errgroup-goroutine">三、用 errgroup 管住一批 goroutine</h2>
+<p><code>errgroup</code> 解决的是"并发发起 N 个任务，任一失败就整体取消，并且要能等到所有任务收尾"这个需求。它是 <code>sync.WaitGroup</code> 的加强版，多了两件事：<strong>错误传播</strong>和<strong>取消传播</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">Service</span><span class="p">)</span><span class="w"> </span><span class="nx">Detail</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="w"> </span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">Detail</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">errgroup</span><span class="p">.</span><span class="nx">WithContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">user</span><span class="w"> </span><span class="o">*</span><span class="nx">User</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">orders</span><span class="w"> </span><span class="p">[]</span><span class="nx">Order</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">coupons</span><span class="w"> </span><span class="p">[]</span><span class="nx">Coupon</span>
+
+<span class="w">    </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">var</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span>
+<span class="w">        </span><span class="nx">user</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">userRepo</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="p">)</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">})</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">var</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span>
+<span class="w">        </span><span class="nx">orders</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">orderRepo</span><span class="p">.</span><span class="nx">ListByUser</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="p">)</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">})</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">var</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span>
+<span class="w">        </span><span class="nx">coupons</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">couponRepo</span><span class="p">.</span><span class="nx">ListValid</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="p">)</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">})</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">g</span><span class="p">.</span><span class="nx">Wait</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">Detail</span><span class="p">{</span><span class="nx">User</span><span class="p">:</span><span class="w"> </span><span class="nx">user</span><span class="p">,</span><span class="w"> </span><span class="nx">Orders</span><span class="p">:</span><span class="w"> </span><span class="nx">orders</span><span class="p">,</span><span class="w"> </span><span class="nx">Coupons</span><span class="p">:</span><span class="w"> </span><span class="nx">coupons</span><span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>这里有三个细节值得强调：</p>
+<ul>
+<li><code>g, ctx := errgroup.WithContext(ctx)</code> 返回的 <code>ctx</code> 会在<strong>任一</strong> goroutine 返回错误时被取消。所以另外两个 goroutine 里的 <code>ctx</code> 会立刻感知到，能提前退出。</li>
+<li><code>g.Wait()</code> 会等<strong>所有</strong> goroutine 返回，而不是第一个错误就返回。所以你不必担心变量被并发读写的悬垂问题——但也正因为如此，每个 goroutine 的返回值要能安全丢弃。</li>
+<li>这里的 <code>user</code>/<code>orders</code>/<code>coupons</code> 是不同变量，各写各的，没有 data race。<strong>如果是往同一个 slice 里 append，就一定需要加锁或预分配按索引写。</strong></li>
+</ul>
+<h3 id="_1">加上并发上限</h3>
+<p>无脑并发在依赖出问题时会把下游打垮，也会把自己的连接池耗光。<code>errgroup</code> 配 <code>semaphore</code> 是最省事的限流方式：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="s">"golang.org/x/sync/semaphore"</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">Service</span><span class="p">)</span><span class="w"> </span><span class="nx">BatchGet</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">ids</span><span class="w"> </span><span class="p">[]</span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="o">*</span><span class="nx">Item</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">errgroup</span><span class="p">.</span><span class="nx">WithContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">sem</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">semaphore</span><span class="p">.</span><span class="nx">NewWeighted</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="c1">// 最多 8 个并发</span>
+<span class="w">    </span><span class="nx">result</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">([]</span><span class="o">*</span><span class="nx">Item</span><span class="p">,</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">ids</span><span class="p">))</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">ids</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">sem</span><span class="p">.</span><span class="nx">Acquire</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="c1">// ctx 已取消，直接退出</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span>
+<span class="w">        </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">defer</span><span class="w"> </span><span class="nx">sem</span><span class="p">.</span><span class="nx">Release</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">            </span><span class="nx">item</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">repo</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="p">)</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">            </span><span class="nx">result</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">item</span><span class="w"> </span><span class="c1">// 按索引写，天然无竞争</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
+<span class="w">        </span><span class="p">})</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">g</span><span class="p">.</span><span class="nx">Wait</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">result</span><span class="p">,</span><span class="w"> </span><span class="kc">nil</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>i, id := i, id</code> 这一行在 Go 1.22 之前是必须的；Go 1.22 起循环变量改为每轮独立，可以省掉，但显式写出来也读得懂。</p>
+<h2 id="_2">四、优雅退出：让信号一路传到最底层</h2>
+<p>服务收到 SIGTERM 之后要做的事，本质上是<strong>先停止接受新请求，再给在途请求留时间，最后释放资源</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">stop</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">signal</span><span class="p">.</span><span class="nx">NotifyContext</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="nx">syscall</span><span class="p">.</span><span class="nx">SIGINT</span><span class="p">,</span><span class="w"> </span><span class="nx">syscall</span><span class="p">.</span><span class="nx">SIGTERM</span><span class="p">)</span>
+<span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">stop</span><span class="p">()</span>
+
+<span class="w">    </span><span class="nx">srv</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">http</span><span class="p">.</span><span class="nx">Server</span><span class="p">{</span><span class="nx">Addr</span><span class="p">:</span><span class="w"> </span><span class="s">":8080"</span><span class="p">,</span><span class="w"> </span><span class="nx">Handler</span><span class="p">:</span><span class="w"> </span><span class="nx">router</span><span class="p">()}</span>
+
+<span class="w">    </span><span class="k">go</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">srv</span><span class="p">.</span><span class="nx">ListenAndServe</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">errors</span><span class="p">.</span><span class="nx">Is</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">ErrServerClosed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatalf</span><span class="p">(</span><span class="s">"listen: %v"</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}()</span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">"server started on :8080"</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">&lt;-</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">Done</span><span class="p">()</span><span class="w"> </span><span class="c1">// 收到信号</span>
+<span class="w">    </span><span class="nx">stop</span><span class="p">()</span><span class="w">       </span><span class="c1">// 恢复默认信号行为，再按一次 Ctrl+C 直接强杀</span>
+
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">"shutting down..."</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">shutdownCtx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="mi">15</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span>
+<span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">srv</span><span class="p">.</span><span class="nx">Shutdown</span><span class="p">(</span><span class="nx">shutdownCtx</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"graceful shutdown failed: %v"</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">"server exited"</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>几点实践经验：</p>
+<ul>
+<li><code>signal.NotifyContext</code> 比手写 <code>signal.Notify</code> + channel 干净得多，Go 1.16+ 可用。</li>
+<li>关闭超时不要设太长。K8s 的 <code>terminationGracePeriodSeconds</code> 默认 30s，本地 grace 设 15s 左右比较合适；如果超过，Pod 会被 <code>SIGKILL</code>，设置再长也没意义。</li>
+<li>注意 <code>srv.Shutdown</code> <strong>不会</strong>等待 hijack 连接（比如 WebSocket），需要自己维护连接列表。</li>
+<li>后台常驻的 goroutine（消费 MQ、定时任务）也要接同一个 <code>ctx</code>，否则它们会在服务"退出"后继续跑。</li>
+</ul>
+<h2 id="_3">五、一组容易踩的坑</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>原因</th>
+<th>修法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>goroutine 数持续上涨</td>
+<td>上游 <code>context.Background()</code> 切断了取消链</td>
+<td>全链路透传 ctx</td>
+</tr>
+<tr>
+<td>CPU 空转</td>
+<td><code>for { select {} }</code> 里缺 default 导致忙等</td>
+<td>加 <code>runtime.Gosched()</code> 或改成长阻塞 select</td>
+</tr>
+<tr>
+<td>定时器泄漏</td>
+<td><code>WithTimeout</code> 的 cancel 没调</td>
+<td><code>defer cancel()</code></td>
+</tr>
+<tr>
+<td>超时不起作用</td>
+<td>客户端设了超时但 DB 层用 Background</td>
+<td>检查每一层是否都传了 ctx</td>
+</tr>
+<tr>
+<td>偶发 data race</td>
+<td>多 goroutine 写同一个 map/slice</td>
+<td>按索引写、加锁，或改 channel 收口</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_4">小结</h2>
+<ul>
+<li><code>context</code> 是<strong>取消信号广播器</strong>，判据是生命周期而非"能不能少传个参数"。</li>
+<li><code>errgroup</code> + <code>semaphore</code> 是绝大多数"并发取数"场景的标准答案：错误能传播、取消能传播、并发有上限。</li>
+<li>优雅退出要做三件事：停接新请求 → 等在途请求（有超时）→ 释放资源，并且信号要传到每一个常驻 goroutine。</li>
+</ul>
+<p>这套骨架我在几个服务里用了两三年，基本没有再因为并发收尾出过线上问题。如果你的项目还在裸用 <code>sync.WaitGroup</code>，值得花半小时换过来。</p>]]></content:encoded>
+<category>Go</category>
+<category>并发编程</category>
+<category>工程实践</category>
+<category>后端</category>
+    </item>
+    <item>
+      <title>MySQL 索引失效的 12 个真实场景复盘</title>
+      <link>https://jasondeng1997.github.io/posts/mysql-index-not-used-cases/</link>
+      <guid isPermaLink="true">https://jasondeng1997.github.io/posts/mysql-index-not-used-cases/</guid>
+      <pubDate>Thu, 20 Aug 2026 09:00:00 +0800</pubDate>
+      <description>把线上慢查询日志里反复出现的索引失效场景整理成 12 条：每条给出复现 SQL、为什么失效、以及改写成什么样。文末附一套排查 checklist。</description>
+      <content:encoded><![CDATA[<p>索引失效这个话题老生常谈，但真到线上抓慢查询时，往往还是会愣一下。下面这 12 个场景全部来自我自己处理过的慢查询日志，按"最容易踩"排序。</p>
+<p>先约定一张演示表和索引：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="o">`</span><span class="n">t_order</span><span class="o">`</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="w">          </span><span class="nb">BIGINT</span><span class="w">       </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="n">AUTO_INCREMENT</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">order_no</span><span class="o">`</span><span class="w">    </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="w">  </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="w">     </span><span class="nb">BIGINT</span><span class="w">       </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="w">      </span><span class="n">TINYINT</span><span class="w">      </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">amount</span><span class="o">`</span><span class="w">      </span><span class="nb">DECIMAL</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">remark</span><span class="o">`</span><span class="w">      </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="w">  </span><span class="n">DATETIME</span><span class="w">     </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="p">),</span>
+<span class="w">  </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_user_status_time</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="p">),</span>
+<span class="w">  </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_order_no</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">order_no</span><span class="o">`</span><span class="p">),</span>
+<span class="w">  </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_created_at</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="p">)</span>
+<span class="p">)</span><span class="w"> </span><span class="n">ENGINE</span><span class="o">=</span><span class="n">InnoDB</span><span class="p">;</span>
+</code></pre></div>
+
+<h2 id="1">1. 联合索引不满足最左前缀</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 不走 idx_user_status_time</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="s1">'2026-01-01'</span><span class="p">;</span>
+</code></pre></div>
+
+<p>联合索引 <code>(user_id, status, created_at)</code> 的 B+ 树是按 <code>user_id</code> 先排序的。跳过最左列 <code>user_id</code>，后面的列在全局是无序的，无法用树来定位。</p>
+<p><strong>改法</strong>：补上 <code>user_id</code>，或者为这个查询单独建 <code>(status, created_at)</code>。</p>
+<blockquote>
+<p>注意：MySQL 8.0 有 <strong>索引跳跃扫描</strong>（Index Skip Scan），在某些条件下跳过最左列也能用上索引，但它的适用条件很苛刻（最左列基数极低），不要把优化押在它身上。</p>
+</blockquote>
+<h2 id="2">2. 在索引列上做运算或函数</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 失效：对索引列做了函数运算</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="nb">DATE</span><span class="p">(</span><span class="n">created_at</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'2026-01-01'</span><span class="p">;</span>
+<span class="c1">-- 失效：对索引列做了运算</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100</span><span class="p">;</span>
+</code></pre></div>
+
+<p>索引里存的是原始值，套了函数之后没法用 B+ 树的有序性定位。</p>
+<p><strong>改法</strong>：把运算挪到常量一侧，改写成范围查询。</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="s1">'2026-01-01 00:00:00'</span>
+<span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&lt;</span><span class="w">  </span><span class="s1">'2026-01-02 00:00:00'</span><span class="p">;</span>
+</code></pre></div>
+
+<h2 id="3">3. 隐式类型转换</h2>
+<p>这是线上最常见、也最隐蔽的一种。<code>order_no</code> 是 <code>VARCHAR</code>，如果传了数字：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 失效：字符串列 vs 数字常量，MySQL 会把列转成 double 比较</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">order_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20260101001</span><span class="p">;</span>
+</code></pre></div>
+
+<p><code>EXPLAIN</code> 的 <code>Extra</code> 里往往不会明说，但 <code>key</code> 会从 <code>idx_order_no</code> 变成空。反过来，<strong>数字列传字符串常量是可以走索引的</strong>（常量被转换，列保持原样）。</p>
+<p><strong>改法</strong>：参数类型与列类型严格对齐。如果是 MyBatis，检查一下 <code>#{}</code> 传进来的 Java 类型。</p>
+<h2 id="4-like">4. <code>LIKE</code> 以通配符开头</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 失效</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">remark</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">'%退款%'</span><span class="p">;</span>
+<span class="c1">-- 有效（前缀匹配）</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">remark</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">'退款%'</span><span class="p">;</span>
+</code></pre></div>
+
+<p><strong>改法</strong>：
+- 前缀匹配需求 → 保持 <code>LIKE 'xxx%'</code>。
+- 中缀/后缀搜索 → 使用全文索引（<code>FULLTEXT</code> + <code>MATCH ... AGAINST</code>），或者把搜索交给 ES。
+- 数据量不大（几万行以内）时，全表扫也未必是问题，别过早优化。</p>
+<h2 id="5-or">5. <code>OR</code> 连接的条件有一侧没索引</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 只要 status 上没有索引，整个查询就可能退化成全表扫</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1001</span><span class="w"> </span><span class="k">OR</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+</code></pre></div>
+
+<p><strong>改法</strong>：两侧都建索引，或者拆成两条 SQL 在应用层 <code>UNION ALL</code>。</p>
+<h2 id="6-not-in-not-like">6. 使用 <code>NOT IN</code> / <code>!=</code> / <code>NOT LIKE</code></h2>
+<p>这类否定条件通常意味着"要扫描大部分数据"，优化器判断走索引再回表不如直接全表扫。</p>
+<p><strong>改法</strong>：如果否定条件的候选集很小，改写成肯定条件：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 原来是 status != 1</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</code></pre></div>
+
+<h2 id="7-is-null-is-not-null">7. <code>IS NULL</code> / <code>IS NOT NULL</code> 的坑</h2>
+<p>单列索引中 <code>IS NULL</code> 是可以走索引的。但如果是<strong>联合索引</strong>，而 <code>NULL</code> 列不在最左，情况就变了。另外 <code>IS NOT NULL</code> 在 <code>NULL</code> 值占比很低时通常也会全表扫。</p>
+<p><strong>改法</strong>：数据库设计阶段就给关键列加 <code>NOT NULL DEFAULT</code>，从根上避免。</p>
+<h2 id="8">8. 范围查询之后的列无法用于排序</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 能用索引过滤，但 ORDER BY 用不上索引排序</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1001</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="s1">'2026-01-01'</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">status</span><span class="p">;</span>
+</code></pre></div>
+
+<p>联合索引 <code>(user_id, status, created_at)</code> 中，<code>created_at</code> 是范围条件，它的<strong>后面</strong>已经没有列了；而 <code>status</code> 在 <code>created_at</code> 之前，一旦 <code>created_at</code> 变成范围扫描，<code>status</code> 在结果集内就不再有序。</p>
+<p><strong>改法</strong>：调整索引列顺序。把等值条件列放前面，范围条件列放最后：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_user_status_time</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="p">)</span><span class="w">  </span><span class="c1">-- 已是正确顺序</span>
+<span class="c1">-- 如果 ORDER BY status 是主诉求，则建立 (user_id, created_at) 覆盖，或调整业务分页方式</span>
+</code></pre></div>
+
+<h2 id="9">9. 回表代价过高，优化器主动放弃索引</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 假设 status = 1 的数据占 90%</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span>
+</code></pre></div>
+
+<p>优化器会估算：走 <code>status</code> 索引拿到 90% 的主键，再逐行回表，成本高于直接全表扫 + <code>LIMIT</code> 提前结束。</p>
+<p><strong>改法</strong>：
+- 用<strong>覆盖索引</strong>消除回表：把查询需要的列加进索引。</p>
+<div class="codehilite"><pre><span></span><code><span class="k">ALTER</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">ADD</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="n">idx_status_cover</span><span class="w"> </span><span class="p">(</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">user_id</span><span class="p">,</span><span class="w"> </span><span class="n">amount</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span><span class="p">);</span>
+</code></pre></div>
+
+<ul>
+<li>或者接受全表扫——当 <code>status</code> 区分度真的很低时，强行走索引反而更慢。</li>
+</ul>
+<h2 id="10">10. 排序字段与索引顺序不一致</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 混合升降序，MySQL 8.0 之前无法用索引排序</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1001</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="k">ASC</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+
+<p>MySQL 8.0 起支持<strong>降序索引</strong>，可以显式声明：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_user_status_time_desc</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">user_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="w"> </span><span class="k">ASC</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">created_at</span><span class="o">`</span><span class="w"> </span><span class="k">DESC</span><span class="p">);</span>
+</code></pre></div>
+
+<p>8.0 之前只能靠额外排序（<code>Using filesort</code>）。</p>
+<h2 id="11">11. 统计信息过期导致选错执行计划</h2>
+<p>现象很典型：<strong>昨天还好好的 SQL，今天突然慢了</strong>，<code>EXPLAIN</code> 显示走了另一个索引。</p>
+<p><strong>排查</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SHOW</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="p">;</span><span class="w">              </span><span class="c1">-- 看 Cardinality 是否明显偏离实际</span>
+<span class="k">ANALYZE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">t_order</span><span class="p">;</span><span class="w">                </span><span class="c1">-- 重新采样统计信息</span>
+</code></pre></div>
+
+<p><strong>改法</strong>：
+- 对数据分布剧烈变化的表，定期 <code>ANALYZE TABLE</code>。
+- 关键 SQL 用 <code>FORCE INDEX</code> 兜底（但要记得它会锁死选择权，索引改名/删除后会报错）。
+- 上线前用 <code>EXPLAIN ANALYZE</code>（8.0.18+）看真实执行耗时，而不是只看估算。</p>
+<h2 id="12">12. 索引选择性太差</h2>
+<p>如果一个索引列的区分度极低（比如性别、状态位、是否删除），走索引的收益本身就很小。</p>
+<p><strong>判断方法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="k">DISTINCT</span><span class="w"> </span><span class="n">status</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">selectivity</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">t_order</span><span class="p">;</span>
+</code></pre></div>
+
+<p>一般选择性低于 0.01 的列，单独建索引意义不大。可以考虑：
+- 与高选择性列组成联合索引
+- 改用位图、分区等其他手段</p>
+<h2 id="checklist">排查 checklist</h2>
+<p>遇到慢查询，我一般按这个顺序走：</p>
+<ol>
+<li><code>EXPLAIN</code> 看 <code>type</code>、<code>key</code>、<code>rows</code>、<code>Extra</code>（重点看 <code>Using filesort</code> / <code>Using temporary</code>）</li>
+<li><code>SHOW WARNINGS</code> 看优化器重写后的 SQL——经常能一眼看出为什么没用索引</li>
+<li>确认参数类型与列类型一致（隐式转换第一名）</li>
+<li>确认条件是否满足最左前缀、范围条件是否在最右</li>
+<li><code>SHOW INDEX</code> 看 <code>Cardinality</code>，必要时 <code>ANALYZE TABLE</code></li>
+<li>对高频 SQL 用 <code>EXPLAIN ANALYZE</code> 验证实际耗时</li>
+<li>数据量到百万级以上且是分析类查询，考虑加覆盖索引或换存储（ES / ClickHouse）</li>
+</ol>
+<h2 id="_1">小结</h2>
+<p>12 条里，真正高频的其实就三类：<strong>最左前缀不满足、索引列上做运算（含隐式类型转换）、回表代价过高</strong>。把这三类记住，剩下的靠 <code>EXPLAIN</code> + <code>SHOW WARNINGS</code> 基本都能定位。</p>
+<p>最后一句提醒：<strong>索引不是越多越好</strong>。每个索引都会让写入变慢、占用空间、增加优化器选错计划的概率。加索引前先问一句——这条 SQL 的 QPS 和耗时，真的到了需要优化的程度吗？</p>]]></content:encoded>
+<category>MySQL</category>
+<category>数据库</category>
+<category>性能优化</category>
+<category>后端</category>
+    </item>
+    <item>
+      <title>分布式 ID 生成方案横评：雪花、号段与 Leaf</title>
+      <link>https://jasondeng1997.github.io/posts/distributed-id-generation/</link>
+      <guid isPermaLink="true">https://jasondeng1997.github.io/posts/distributed-id-generation/</guid>
+      <pubDate>Sun, 12 Jul 2026 09:00:00 +0800</pubDate>
+      <description>自增主键在分库分表下不够用了怎么办？把 UUID、数据库自增、号段模式、雪花算法、美团 Leaf、百度 UidGenerator 放在一起，从趋势递增、时钟回拨、可用性三个维度做横向对比，并给出选型决策树。</description>
+      <content:encoded><![CDATA[<p>分库分表之后，第一个撞上的问题往往就是主键。单表自增在多个库上会互相冲突，而如果用 UUID，插入性能又会掉得很难看。这篇把常见的几套方案摊开对比一遍。</p>
+<h2 id="_1">一、先明确需求</h2>
+<p>选型之前先回答四个问题，答案基本就唯一了：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>为什么重要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ID 需要<strong>趋势递增</strong>吗？</td>
+<td>影响 InnoDB 聚簇索引的插入性能、以及分页/排序的可读性</td>
+</tr>
+<tr>
+<td>ID 会不会<strong>暴露给外部</strong>（URL、接口）？</td>
+<td>递增 ID 会泄露业务量、可被遍历爬取</td>
+</tr>
+<tr>
+<td>允许<strong>多长</strong>？</td>
+<td>64 位能塞进 <code>BIGINT</code>，128 位只能存字符串</td>
+</tr>
+<tr>
+<td>能接受<strong>多高的可用性要求</strong>？</td>
+<td>依赖中心服务 vs 完全去中心化</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_2">二、六种方案逐个看</h2>
+<h3 id="1-uuid">1. UUID</h3>
+<div class="codehilite"><pre><span></span><code><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">UUID</span><span class="p">.</span><span class="na">randomUUID</span><span class="p">().</span><span class="na">toString</span><span class="p">();</span><span class="w"> </span><span class="c1">// 36 字符</span>
+</code></pre></div>
+
+<ul>
+<li>✅ 完全本地生成，无网络开销，无单点</li>
+<li>❌ 无序，作为 InnoDB 主键会导致<strong>页分裂</strong>，写入性能极差</li>
+<li>❌ 36 字符占用大，二级索引也跟着膨胀</li>
+<li>❌ 不可读</li>
+</ul>
+<p><strong>结论</strong>：不要用作主键。可以作为<strong>业务无关的唯一标识</strong>（如 trace id、文件 key）使用。如果非要用，用 UUIDv7（时间有序）会好很多。</p>
+<h3 id="2">2. 数据库自增 + 步长</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 库 1</span>
+<span class="n">auto_increment_increment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
+<span class="n">auto_increment_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w">   </span><span class="c1">-- 生成 1, 3, 5, 7...</span>
+<span class="c1">-- 库 2</span>
+<span class="n">auto_increment_increment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
+<span class="n">auto_increment_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="w">   </span><span class="c1">-- 生成 2, 4, 6, 8...</span>
+</code></pre></div>
+
+<ul>
+<li>✅ 实现最简单，趋势递增</li>
+<li>❌ 扩容麻烦：加一个库就要改所有库的步长，且要停机或精心规划</li>
+<li>❌ 强依赖 DB 可用性</li>
+</ul>
+<p><strong>结论</strong>：库数量固定、规模不大的场景可用。超过 3 个分片就别这么玩了。</p>
+<h3 id="3-segment">3. 号段模式（Segment）</h3>
+<p>核心思路：<strong>一次从数据库取一批 ID 缓存在内存，用完再取</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">id_segment</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="n">biz_tag</span><span class="w">     </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="n">max_id</span><span class="w">      </span><span class="nb">BIGINT</span><span class="w">      </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="n">step</span><span class="w">        </span><span class="nb">INT</span><span class="w">         </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="n">update_time</span><span class="w"> </span><span class="k">TIMESTAMP</span><span class="w">   </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">biz_tag</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="c1">-- 取号段：一次原子地推进 max_id，拿到 [old_max_id+1, new_max_id]</span>
+<span class="k">UPDATE</span><span class="w"> </span><span class="n">id_segment</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">max_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">max_id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">step</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">biz_tag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'order'</span><span class="p">;</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="n">max_id</span><span class="p">,</span><span class="w"> </span><span class="n">step</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">id_segment</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">biz_tag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'order'</span><span class="p">;</span>
+</code></pre></div>
+
+<p>再做一个<strong>双 buffer</strong>：当前号段消耗到 10% 时，异步去取下一个号段。这样取号段的那次 DB 抖动不会阻塞业务。</p>
+<ul>
+<li>✅ 趋势递增，ID 连续可读</li>
+<li>✅ 数据库压力极小（1 万 QPS 下大约几十秒才查一次库）</li>
+<li>✅ 步长可动态调整，扩容方便</li>
+<li>❌ 依赖 DB；号段浪费（重启会丢弃未用完的号段）</li>
+<li>❌ ID 会<strong>跳变</strong>，不适合做严格连续的流水号</li>
+</ul>
+<p><strong>结论</strong>：<strong>最推荐的通用方案</strong>。美团 Leaf-segment、滴滴 TinyID 都是这个思路。</p>
+<h3 id="4-snowflake">4. 雪花算法（Snowflake）</h3>
+<p>经典 64 位布局：</p>
+<div class="codehilite"><pre><span></span><code>0 | 41 bit 时间戳(ms) | 10 bit 机器ID | 12 bit 序列号
+</code></pre></div>
+
+<ul>
+<li>✅ 完全本地生成，性能极高（单机每秒 400 万+）</li>
+<li>✅ 趋势递增，<code>BIGINT</code> 可存</li>
+<li>❌ <strong>强依赖时钟</strong>，时钟回拨会产生重复 ID</li>
+<li>❌ 机器 ID 分配需要额外机制（ZK / 配置中心 / Redis）</li>
+<li>❌ 41 位时间戳只够用约 69 年</li>
+</ul>
+<p><strong>时钟回拨</strong>是最需要认真处理的：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">public</span><span class="w"> </span><span class="kd">synchronized</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="nf">nextId</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">long</span><span class="w"> </span><span class="n">now</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">now</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">now</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">offset</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// 小回拨：等待追平</span>
+<span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">wait</span><span class="p">(</span><span class="n">offset</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span>
+<span class="w">                </span><span class="n">now</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">now</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">"clock moved backwards"</span><span class="p">);</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">InterruptedException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">Thread</span><span class="p">.</span><span class="na">currentThread</span><span class="p">().</span><span class="na">interrupt</span><span class="p">();</span>
+<span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">"interrupted while waiting clock"</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// 大回拨：直接报错，让上层重试（或切换到备用 workerId）</span>
+<span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">"clock moved backwards by "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">offset</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">"ms"</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// ... 正常生成逻辑</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>生产环境还要注意：NTP 同步时<strong>不要用 <code>-</code> 大步长跳变</strong>，改用 <code>slew</code> 模式平滑校正。</p>
+<h3 id="5-leaf-snowflake">5. 美团 Leaf-snowflake</h3>
+<p>在雪花基础上补了两个短板：</p>
+<ul>
+<li><strong>workerId 自动分配</strong>：启动时用 ZK 顺序节点拿到唯一 workerId，并写入本地文件缓存，ZK 挂了也能启动。</li>
+<li><strong>时钟回拨检测</strong>：启动时对比本地时间与 ZK 上记录的上次时间，不一致就告警并拒绝启动。</li>
+</ul>
+<h3 id="6-uidgenerator">6. 百度 UidGenerator</h3>
+<p>用 <code>RingBuffer</code> 预生成 ID，进一步减少同步开销，吞吐比裸雪花更高。但依赖数据库分配 workerId，且 ID 位宽布局与雪花不兼容（时间戳左移、序列号在低位）。</p>
+<h2 id="_3">三、横向对比</h2>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>趋势递增</th>
+<th>性能</th>
+<th>依赖</th>
+<th>时钟敏感</th>
+<th>长度</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UUID</td>
+<td>❌</td>
+<td>极高</td>
+<td>无</td>
+<td>否</td>
+<td>128 bit</td>
+<td>非主键的唯一标识</td>
+</tr>
+<tr>
+<td>DB 自增+步长</td>
+<td>✅</td>
+<td>中</td>
+<td>DB</td>
+<td>否</td>
+<td>64 bit</td>
+<td>分片少、规模小</td>
+</tr>
+<tr>
+<td>号段模式</td>
+<td>✅</td>
+<td>高</td>
+<td>DB</td>
+<td>否</td>
+<td>64 bit</td>
+<td><strong>通用首选</strong></td>
+</tr>
+<tr>
+<td>雪花算法</td>
+<td>✅</td>
+<td>极高</td>
+<td>机器 ID 分配</td>
+<td><strong>是</strong></td>
+<td>64 bit</td>
+<td>超高并发、可容忍少量跳号</td>
+</tr>
+<tr>
+<td>Leaf-snowflake</td>
+<td>✅</td>
+<td>极高</td>
+<td>ZK</td>
+<td>是</td>
+<td>64 bit</td>
+<td>超高并发 + 运维规范</td>
+</tr>
+<tr>
+<td>UidGenerator</td>
+<td>✅</td>
+<td>极高</td>
+<td>DB</td>
+<td>是</td>
+<td>64 bit</td>
+<td>极致吞吐</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_4">四、选型决策树</h2>
+<div class="codehilite"><pre><span></span><code>需要对外暴露 ID 且不希望被猜出业务量？
+├── 是 → 不要用纯自增/雪花的原始值，加一层「ID 混淆」
+│        （如 Hashids、或内部 ID ↔ 外部短码 的映射表）
+└── 否
+    └── 单机 QPS 是否超过 5 万？
+        ├── 否 → 号段模式（Leaf-segment / TinyID）
+        │        运维成本最低，可读性最好
+        └── 是 → 雪花算法
+                 ├── 有 ZK/etcd → Leaf-snowflake
+                 └── 无 → 自研雪花 + 配置中心分配 workerId
+                        + 时钟回拨兜底策略
+</code></pre></div>
+
+<h2 id="_5">五、几个工程细节</h2>
+<p><strong>1. 号段模式要预留降级路径</strong></p>
+<p>DB 挂掉时，如果本地还有剩余号段，服务能继续撑一会儿。可以把号段缓存到本地文件，重启后先尝试恢复。</p>
+<p><strong>2. 雪花算法的 workerId 不要用 IP 末位</strong></p>
+<p>IP 会变、会重复（容器环境下），一定要走中心化分配或 K8s StatefulSet 的序号。</p>
+<p><strong>3. 不要用业务时间做 ID 的一部分</strong></p>
+<p>见过用 <code>yyyyMMdd + 自增</code> 的，跨零点时自增重置，直接撞 ID。</p>
+<p><strong>4. 考虑 ID 的"可读性"</strong></p>
+<p>运维排查时，能从 ID 看出生成时间（雪花就能）是很爽的体验。如果团队经常需要按 ID 定位时间段，优先选雪花类方案。</p>
+<p><strong>5. 分库分表路由与 ID 生成解耦</strong></p>
+<p>不要因为"分 8 张表"就把 ID 设计成 <code>用户ID &lt;&lt; 4 | 表序号</code>，后面改分片数会痛不欲生。用独立的 ID 生成器，路由用另外的字段（如 <code>user_id</code>）。</p>
+<h2 id="_6">小结</h2>
+<ul>
+<li>大部分业务，<strong>号段模式</strong>是最优解：够快、够简单、够好运维。</li>
+<li>超高并发场景再上<strong>雪花</strong>，但一定要把<strong>时钟回拨</strong>和<strong>workerId 分配</strong>这两件事做扎实。</li>
+<li>UUID 不是不能用，是别当主键用。</li>
+</ul>
+<p>最后一句：ID 生成器是基础设施，<strong>上线前一定要做单点故障演练</strong>——手动把生成服务停掉，看业务能撑多久。</p>]]></content:encoded>
+<category>分布式系统</category>
+<category>架构设计</category>
+<category>后端</category>
+<category>高并发</category>
+    </item>
+    <item>
+      <title>写技术文档的 5 个模板：让半年后的自己看得懂</title>
+      <link>https://jasondeng1997.github.io/posts/tech-doc-templates/</link>
+      <guid isPermaLink="true">https://jasondeng1997.github.io/posts/tech-doc-templates/</guid>
+      <pubDate>Fri, 05 Jun 2026 09:00:00 +0800</pubDate>
+      <description>设计文档、故障复盘、README、源码分析、变更记录——这 5 类技术文档各有固定的信息骨架。给出可直接复制的模板，以及一条判断&#34;该不该写文档&#34;的标准。</description>
+      <content:encoded><![CDATA[<p>技术文档最难的不是"写得好"，而是<strong>信息齐了没</strong>。内容散落的文档，写得再漂亮，半年后还是要重新啃代码。</p>
+<p>这两年我把自己反复用的文档骨架整理成了 5 个模板。它们的共同点是：<strong>每一节都在回答一个具体的决策问题</strong>，而不是"把知道的都倒出来"。</p>
+<h2 id="_1">判断标准：这份文档要不要写？</h2>
+<p>先给一条我认为最实用的标准：</p>
+<blockquote>
+<p><strong>如果一个决策，三个月后的你需要重新推演一遍才能理解，那就必须写下来。</strong></p>
+</blockquote>
+<p>按这个标准过滤，真正需要写的其实只有三类：</p>
+<ol>
+<li><strong>决策类</strong>：为什么选 A 不选 B（技术选型、架构方案）</li>
+<li><strong>约定类</strong>：大家必须一致遵守的东西（接口规范、命名规则、目录结构）</li>
+<li><strong>非显然的事实类</strong>：读代码看不出来的东西（历史包袱、踩过的坑、外部依赖的口头约定）</li>
+</ol>
+<p>至于"这个函数做了什么"——代码本身就能说清楚，不需要文档。</p>
+<h2 id="design-doc">模板一：设计文档（Design Doc）</h2>
+<p>用在<strong>动手之前</strong>。它的核心价值是让评审人能提问。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># [模块名] 设计文档</span>
+
+<span class="k">-</span><span class="w"> </span>作者 / 日期 / 状态：[草稿 | 评审中 | 已定稿]
+<span class="k">-</span><span class="w"> </span>评审人：
+
+<span class="gu">## 1. 背景与问题</span>
+用 3 句话说清：现在的痛点是什么、影响了谁、不解决会怎样。
+（不要写"为了提升系统性能"这种废话，要写"订单导出在 10 万行以上时超时，每周约 30 次工单"）
+
+<span class="gu">## 2. 目标与非目标</span>
+<span class="gu">### 目标</span>
+<span class="k">-</span><span class="w"> </span>可量化的目标，如：导出 50 万行 P99 &lt; 5s
+<span class="gu">### 非目标（同样重要）</span>
+<span class="k">-</span><span class="w"> </span>本次不解决的历史订单迁移
+<span class="k">-</span><span class="w"> </span>不做实时导出
+
+<span class="gu">## 3. 方案设计</span>
+<span class="gu">### 3.1 整体架构</span>
+（架构图 / 时序图）
+
+<span class="gu">### 3.2 关键流程</span>
+<span class="gu">### 3.3 数据模型变更</span>
+<span class="gu">### 3.4 接口定义</span>
+
+<span class="gu">## 4. 备选方案与取舍</span>
+| 方案 | 优点 | 缺点 | 结论 |
+| --- | --- | --- | --- |
+| 方案 A | | | ✅ 采用 |
+| 方案 B | | | ❌ 否决，原因：|
+
+<span class="gu">## 5. 影响面</span>
+<span class="k">-</span><span class="w"> </span>对上游/下游接口的影响
+<span class="k">-</span><span class="w"> </span>对现有数据的影响（是否需要刷数据、回滚方案）
+<span class="k">-</span><span class="w"> </span>对运维的影响（新依赖、新监控项、新告警）
+
+<span class="gu">## 6. 风险评估</span>
+| 风险 | 概率 | 影响 | 应对 |
+| --- | --- | --- | --- |
+
+<span class="gu">## 7. 上线计划</span>
+<span class="k">-</span><span class="w"> </span>灰度策略 / 开关设计
+<span class="k">-</span><span class="w"> </span>回滚方案（必须写！）
+<span class="k">-</span><span class="w"> </span>验收标准
+
+<span class="gu">## 8. 待讨论问题</span>
+<span class="k">- [ ]</span> xxx 需要和基础架构组确认
+</code></pre></div>
+
+<p><strong>要点</strong>：第 4 节"备选方案与取舍"是设计文档的灵魂。没有备选方案的文档，本质是"通知"而不是"设计"。</p>
+<h2 id="postmortem">模板二：故障复盘（Postmortem）</h2>
+<p>核心原则：<strong>对事不对人</strong>。一旦开始追责，后续的复盘都会失真。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># [YYYY-MM-DD] [故障标题] 复盘</span>
+
+<span class="k">-</span><span class="w"> </span>影响时长：14:03 - 14:37（34 分钟）
+<span class="k">-</span><span class="w"> </span>影响范围：订单查询接口 100% 失败，约 1.2 万次请求
+<span class="k">-</span><span class="w"> </span>严重级别：P1
+<span class="k">-</span><span class="w"> </span>处理人：
+
+<span class="gu">## 1. 时间线（精确到分钟）</span>
+| 时间 | 事件 |
+| --- | --- |
+| 13:58 | 发布 v2.3.1，包含索引变更 |
+| 14:03 | 监控告警：order-query P99 突增至 8s |
+| 14:05 | 值班同学确认，开始排查 |
+| ... | ... |
+| 14:37 | 回滚完成，服务恢复 |
+
+<span class="gu">## 2. 根因（Root Cause）</span>
+分三层说：
+<span class="k">-</span><span class="w"> </span><span class="gs">**直接原因**</span>：新增索引的 DDL 在 2000 万行表上执行，锁表 30s
+<span class="k">-</span><span class="w"> </span><span class="gs">**根本原因**</span>：DDL 变更没有走 Online DDL 规范，且未在预发验证
+<span class="k">-</span><span class="w"> </span><span class="gs">**系统性原因**</span>：发布流程缺少"大表 DDL 审批"环节
+
+<span class="gu">## 3. 为什么没被提前发现</span>
+（这一节比根因更重要）
+<span class="k">-</span><span class="w"> </span>预发数据量只有线上的 1/100，无法暴露
+<span class="k">-</span><span class="w"> </span>监控只有 P99 告警，没有 DDL 执行时长指标
+
+<span class="gu">## 4. 改进项</span>
+| 改进项 | 类型 | 负责人 | 截止日期 |
+| --- | --- | --- | --- |
+| 大表 DDL 必须使用 gh-ost | 流程 | <span class="ni">@xxx</span> | 10-01 |
+| 发布检查项加 DDL 审批 | 工具 | <span class="ni">@xxx</span> | 09-30 |
+| 补 DDL 执行时长监控 | 监控 | <span class="ni">@xxx</span> | 09-25 |
+
+<span class="gu">## 5. 附录</span>
+<span class="k">-</span><span class="w"> </span>相关日志、监控截图、变更单链接
+</code></pre></div>
+
+<p><strong>要点</strong>：第 3 节"为什么没被提前发现"最容易被省略，但它才是防止同类故障复发的关键。</p>
+<h2 id="readme">模板三：README</h2>
+<p>README 的读者是"第一次来到这个仓库的人"，包括三个月后的你自己。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># 项目名</span>
+
+一句话说明这个项目是做什么的。
+
+<span class="gu">## 快速开始</span>
+<span class="sb">```bash</span>
+<span class="c1"># 三条命令以内跑起来，超过三条说明环境配置有问题</span>
+git<span class="w"> </span>clone<span class="w"> </span>xxx<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>xxx
+make<span class="w"> </span>dev
+open<span class="w"> </span>http://localhost:8080
+<span class="sb">```</span>
+
+<span class="gu">## 环境要求</span>
+| 依赖 | 版本 | 说明 |
+| --- | --- | --- |
+
+<span class="gu">## 常用命令</span>
+| 命令 | 作用 |
+| --- | --- |
+| <span class="sb">`make test`</span> | 跑单测 |
+| <span class="sb">`make lint`</span> | 静态检查 |
+| <span class="sb">`make build`</span> | 构建二进制 |
+
+<span class="gu">## 项目结构</span>
+（只写"为什么"这么分，不写"是什么"）
+<span class="k">-</span><span class="w"> </span><span class="sb">`internal/service`</span>：业务编排，不直接访问 DB
+<span class="k">-</span><span class="w"> </span><span class="sb">`internal/repo`</span>：数据访问，禁止写业务判断
+<span class="k">-</span><span class="w"> </span><span class="sb">`internal/adapter`</span>：外部依赖适配，方便测试打桩
+
+<span class="gu">## 配置说明</span>
+关键配置项 + 默认值 + 是否必填。
+
+<span class="gu">## 常见问题</span>
+<span class="k">-</span><span class="w"> </span>启动报 xxx：因为 aaa，执行 bbb 解决
+
+<span class="gu">## 相关文档</span>
+<span class="k">-</span><span class="w"> </span>设计文档链接
+<span class="k">-</span><span class="w"> </span>部署文档链接
+</code></pre></div>
+
+<p><strong>要点</strong>：README 里最该有的两样东西是<strong>"三条命令跑起来"</strong>和<strong>"项目结构为什么这么分"</strong>。</p>
+<h2 id="_2">模板四：源码分析</h2>
+<p>用于读中间件、框架源码后的沉淀。关键是<strong>留下"结论"而不是"过程"</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="gh"># [组件名] 源码分析：[某个具体机制]</span>
+
+<span class="k">-</span><span class="w"> </span>版本：v2.3.1（务必写明版本，源码分析脱离版本等于没写）
+<span class="k">-</span><span class="w"> </span>阅读入口：`xxx#yyy`
+
+<span class="gu">## 结论先行</span>
+用 5 句话以内说清这个机制的运作方式。
+（半年后你只需要看这一段）
+
+<span class="gu">## 核心类图 / 时序图</span>
+
+<span class="gu">## 关键流程拆解</span>
+<span class="gu">### 步骤 1：xxx</span>
+代码位置：`a/b/C.java#L120`
+做了什么 + <span class="gs">**为什么这么做**</span>
+
+<span class="gu">### 步骤 2：xxx</span>
+
+<span class="gu">## 设计亮点</span>
+<span class="k">-</span><span class="w"> </span>用 xxx 换取了 yyy（记住：任何设计都是取舍）
+
+<span class="gu">## 我踩过的坑</span>
+<span class="k">-</span><span class="w"> </span>配置 xxx 时必须同时设 yyy，否则不生效
+
+<span class="gu">## 与其他实现的对比</span>
+</code></pre></div>
+
+<p><strong>要点</strong>：一定要有"结论先行"和"设计亮点"两节。前者省下未来的时间，后者才是真正的理解。</p>
+<h2 id="changelog">模板五：变更记录（CHANGELOG）</h2>
+<div class="codehilite"><pre><span></span><code><span class="gu">## [2.3.1] - 2026-06-05</span>
+
+<span class="gu">### 新增</span>
+<span class="k">-</span><span class="w"> </span>支持订单批量导出（上限 50 万行）
+
+<span class="gu">### 变更</span>
+<span class="k">-</span><span class="w"> </span><span class="gs">**不兼容变更**</span>：<span class="sb">`POST /api/order/query`</span> 的 <span class="sb">`status`</span> 字段由 int 改为 string
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>迁移方式：见 [<span class="nt">迁移指南</span>](<span class="na">./migration.md</span>)
+
+<span class="gu">### 修复</span>
+<span class="k">-</span><span class="w"> </span>修复分页查询在最后一页返回空数组的问题（#1234）
+
+<span class="gu">### 安全</span>
+<span class="k">-</span><span class="w"> </span>升级 log4j 至 2.17.2
+</code></pre></div>
+
+<p><strong>要点</strong>：<strong>不兼容变更必须单独标注</strong>，并给出迁移方式。这是对使用者最基本的尊重。</p>
+<h2 id="_3">一套通用的写作习惯</h2>
+<p>最后分享四个我一直在用的习惯：</p>
+<ol>
+<li><strong>先写结论，再写推导。</strong> 用"倒金字塔"结构：结论 → 依据 → 数据 → 附录。</li>
+<li><strong>每张图都要有 caption。</strong> 图单独发出去（比如在 IM 里转发）时，没有 caption 就是废图。</li>
+<li><strong>代码块必须标注语言。</strong> 否则渲染出来没有高亮，可读性差一大截。</li>
+<li><strong>写完通读一遍，删掉所有"其实""应该""大概"。</strong> 这类词会让文档失去可信度。</li>
+</ol>
+<h2 id="_4">小结</h2>
+<table>
+<thead>
+<tr>
+<th>文档类型</th>
+<th>写在哪</th>
+<th>核心章节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>设计文档</td>
+<td>动手前</td>
+<td>备选方案与取舍</td>
+</tr>
+<tr>
+<td>故障复盘</td>
+<td>故障后 24h 内</td>
+<td>为什么没被提前发现</td>
+</tr>
+<tr>
+<td>README</td>
+<td>首次提交时</td>
+<td>快速开始</td>
+</tr>
+<tr>
+<td>源码分析</td>
+<td>读完源码后</td>
+<td>结论先行</td>
+</tr>
+<tr>
+<td>变更记录</td>
+<td>每次发布</td>
+<td>不兼容变更</td>
+</tr>
+</tbody>
+</table>
+<p>文档不是写给领导看的，是写给<strong>未来那个已经忘记上下文的自己</strong>看的。按这个心态写，自然就写清楚了。</p>]]></content:encoded>
+<category>工程实践</category>
+<category>技术写作</category>
+<category>效率</category>
+<category>团队协作</category>
+    </item>
+    <item>
+      <title>6 张图带你彻底搞懂分布式事务 XA 模式</title>
+      <link>https://jasondeng1997.github.io/posts/xa-distributed-transaction/</link>
+      <guid isPermaLink="true">https://jasondeng1997.github.io/posts/xa-distributed-transaction/</guid>
+      <pubDate>Wed, 16 Nov 2022 09:00:00 +0800</pubDate>
+      <description>从 XA 协议到两阶段/三阶段提交的取舍，再顺着 Seata 的数据源代理一路读到底层 XA end/prepare 的源码，把 XA 模式为什么对业务无侵入讲清楚。</description>
+      <content:encoded><![CDATA[<p>XA 协议是由 X/Open 组织提出的分布式事务处理规范，主要定义了事务管理器 TM 和局部资源管理器 RM 之间的接口。目前主流的数据库，比如 Oracle、DB2 都是支持 XA 协议的。</p>
+<p>MySQL 从 5.0 版本开始，InnoDB 存储引擎已经支持 XA 协议，今天这篇源码分析使用的实验环境就是 MySQL。</p>
+<p><img alt="分布式事务中 TM 与 RM 的整体角色划分" src="/assets/images/posts/xa-distributed-transaction/01.jpeg" /></p>
+<h2 id="_1">两阶段提交</h2>
+<p>分布式事务的两阶段提交是把整个事务提交分为 prepare 和 commit 两个阶段。以电商系统为例，分布式系统中有订单、账户和库存三个服务，如下图：</p>
+<p><img alt="订单、账户、库存三个服务参与同一个全局事务" src="/assets/images/posts/xa-distributed-transaction/02.jpeg" /></p>
+<ul>
+<li>第一阶段，事务协调者向事务参与者发送 prepare 请求，事务参与者收到请求后，如果可以提交事务，回复 yes，否则回复 no。</li>
+<li>第二阶段，如果所有事务参与者都回复了 yes，事务协调者向所有事务参与者发送 commit 请求，否则发送 rollback 请求。</li>
+</ul>
+<p>两阶段提交存在三个问题：</p>
+<ul>
+<li><strong>同步阻塞</strong>：本地事务在 prepare 阶段锁定资源，如果有其他事务也要修改 xiaoming 这个账户，就必须等待前面的事务完成，这样就造成了系统性能下降。</li>
+<li><strong>协调节点单点故障</strong>：如果第一阶段 prepare 成功了，但第二阶段协调节点发出 commit 指令之前宕机了，所有服务的数据资源处于锁定状态，事务将无限期地等待。</li>
+<li><strong>数据不一致</strong>：如果第一阶段 prepare 成功了，但第二阶段协调节点向某个节点发送 commit 命令时失败，就会导致数据不一致。</li>
+</ul>
+<h2 id="_2">三阶段提交</h2>
+<p>为了解决两阶段提交的问题，三阶段提交做了改进：</p>
+<ul>
+<li>在协调节点和事务参与者都引入了超时机制。</li>
+<li>第一阶段的 prepare 阶段分成了两步：canCommit 和 preCommit。</li>
+</ul>
+<p>如下图：</p>
+<p><img alt="三阶段提交把 prepare 拆成了 canCommit 与 preCommit" src="/assets/images/posts/xa-distributed-transaction/03.jpeg" /></p>
+<p>引入 preCommit 阶段后，协调节点会在 commit 之前再次检查各个事务参与者的状态，保证它们的状态是一致的。但是也存在问题：如果第三阶段发出 rollback 请求，有的节点没有收到，那没有收到的节点会在超时之后进行提交，造成数据不一致。</p>
+<h2 id="xa">XA 事务语法介绍</h2>
+<p>XA 事务的语法如下，三阶段的第一阶段是开启 XA 事务，这里 xid 为全局事务 id：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="err">{</span><span class="k">START</span><span class="o">|</span><span class="k">BEGIN</span><span class="err">}</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="p">[</span><span class="k">JOIN</span><span class="o">|</span><span class="n">RESUME</span><span class="p">]</span>
+</code></pre></div>
+
+<p>结束 XA 事务：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="k">END</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="p">[</span><span class="n">SUSPEND</span><span class="w"> </span><span class="p">[</span><span class="k">FOR</span><span class="w"> </span><span class="n">MIGRATE</span><span class="p">]]</span>
+</code></pre></div>
+
+<p>三阶段的第二阶段，即 prepare：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="k">PREPARE</span><span class="w"> </span><span class="n">xid</span>
+</code></pre></div>
+
+<p>三阶段的第三阶段，即 commit / rollback：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="k">COMMIT</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="p">[</span><span class="n">ONE</span><span class="w"> </span><span class="n">PHASE</span><span class="p">]</span>
+<span class="n">XA</span><span class="w"> </span><span class="k">ROLLBACK</span><span class="w"> </span><span class="n">xid</span>
+</code></pre></div>
+
+<p>查看处于 PREPARE 阶段的所有事务：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="n">RECOVER</span>
+<span class="n">XA</span><span class="w"> </span><span class="n">RECOVER</span><span class="w"> </span><span class="p">[</span><span class="k">CONVERT</span><span class="w"> </span><span class="n">XID</span><span class="p">]</span>
+</code></pre></div>
+
+<h2 id="seata-xa">Seata XA 简介</h2>
+<p>Seata 是阿里推出的一款开源分布式事务解决方案，目前有 AT、TCC、SAGA、XA 四种模式。</p>
+<p>Seata 的 XA 模式是利用分支事务中数据库对 XA 协议的支持来实现的。看一下官网的介绍：</p>
+<p><img alt="Seata XA 模式的整体流程" src="/assets/images/posts/xa-distributed-transaction/04.jpeg" /></p>
+<p>从上面的图可以看到，Seata XA 模式的流程跟其他模式一样：</p>
+<ol>
+<li>TM 开启全局事务</li>
+<li>RM 向 TC 注册分支事务</li>
+<li>RM 向 TC 报告分支事务状态</li>
+<li>TC 向 RM 发送 commit / rollback 请求</li>
+<li>TM 结束全局事务</li>
+</ol>
+<p>这里再介绍一下 RM 客户端初始化关联的 UML 类图：</p>
+<p><img alt="RM 客户端初始化关联的核心类" src="/assets/images/posts/xa-distributed-transaction/05.jpeg" /></p>
+<p>这个图中有一个类是 <code>AbstractNettyRemotingClient</code>，它的内部类 <code>ClientHandler</code> 负责处理 TC 发来的请求，并委托给父类 <code>AbstractNettyRemoting</code> 的 <code>processMessage</code> 方法。<code>processMessage</code> 方法最终调用 <code>RmBranchCommitProcessor</code> 类的 <code>process</code> 方法。</p>
+<p>需要注意的是，<strong>Seata 的 XA 模式对传统的三阶段提交做了优化，改成了两阶段提交</strong>：</p>
+<ul>
+<li>第一阶段执行 XA 开启、执行 SQL、XA 结束三个步骤，之后直接执行 XA prepare。</li>
+<li>第二阶段执行 XA commit / rollback。</li>
+</ul>
+<p>MySQL 目前是支持 Seata XA 模式的两阶段优化的。</p>
+<p><strong>但是这个优化对 Oracle 不支持</strong>，因为 Oracle 实现的是标准的 XA 协议，即 XA end 后，协调节点向事务参与者统一发送 prepare，最后再发送 commit / rollback。这也导致了 Seata 的 XA 模式对 Oracle 支持不太好。</p>
+<h2 id="seata-xa_1">Seata XA 源码</h2>
+<p>Seata 中的 XA 模式是使用数据源代理来实现的，需要手动配置数据源代理，代码如下：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@Bean</span>
+<span class="nd">@ConfigurationProperties</span><span class="p">(</span><span class="n">prefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">"spring.datasource"</span><span class="p">)</span>
+<span class="kd">public</span><span class="w"> </span><span class="n">DruidDataSource</span><span class="w"> </span><span class="nf">druidDataSource</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DruidDataSource</span><span class="p">();</span>
+<span class="p">}</span>
+
+<span class="nd">@Bean</span><span class="p">(</span><span class="s">"dataSourceProxy"</span><span class="p">)</span>
+<span class="kd">public</span><span class="w"> </span><span class="n">DataSource</span><span class="w"> </span><span class="nf">dataSource</span><span class="p">(</span><span class="n">DruidDataSource</span><span class="w"> </span><span class="n">druidDataSource</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DataSourceProxyXA</span><span class="p">(</span><span class="n">druidDataSource</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<ul>
+<li>也可以根据普通 <code>DataSource</code> 来创建 <code>XAConnection</code>，但是这种方式有兼容性问题（比如 Oracle），所以 Seata 使用了开发者自己配置 <code>XADataSource</code>。</li>
+<li>Seata 提供的 XA 数据源代理，要求代码框架中必须使用 Druid 连接池。</li>
+</ul>
+<h3 id="1-xa">1. XA 第一阶段</h3>
+<p>当 RM 收到 DML 请求后，Seata 会使用 <code>ExecuteTemplateXA</code> 来执行，执行方法 <code>execute</code> 中有一个地方很关键，就是把 <code>autocommit</code> 属性改为了 <code>false</code>，而 MySQL 默认 <code>autocommit</code> 是 <code>true</code>。事务提交之后，还要把 <code>autocommit</code> 改回默认。</p>
+<p>下面看一下 XA 第一阶段提交的主要代码。</p>
+<p><strong>1）开启 XA</strong></p>
+<p><code>ConnectionProxyXA</code> 类的 <code>setAutoCommit</code> 方法中，XA start 主要做了三件事：</p>
+<ul>
+<li>向 TC 注册分支事务</li>
+<li>调用数据源的 XA Start</li>
+</ul>
+<div class="codehilite"><pre><span></span><code><span class="n">xaResource</span><span class="p">.</span><span class="na">start</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">xaBranchXid</span><span class="p">,</span><span class="w"> </span><span class="n">XAResource</span><span class="p">.</span><span class="na">TMNOFLAGS</span><span class="p">);</span>
+</code></pre></div>
+
+<ul>
+<li>把 <code>xaActive</code> 设置为 <code>true</code></li>
+</ul>
+<p>RM 并没有直接使用 TC 返回的 <code>branchId</code> 作为 XA 数据源的 <code>branchId</code>，而是使用全局事务 id（xid）和 <code>branchId</code> 重新构建了一个。</p>
+<p><strong>2）执行 SQL</strong></p>
+<p>调用 <code>PreparedStatementProxyXA</code> 的 <code>execute</code> 执行 SQL。</p>
+<p><strong>3）XA end / prepare</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">commit</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// 省略部分源代码</span>
+<span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// XA End: Success</span>
+<span class="w">        </span><span class="n">xaResource</span><span class="p">.</span><span class="na">end</span><span class="p">(</span><span class="n">xaBranchXid</span><span class="p">,</span><span class="w"> </span><span class="n">XAResource</span><span class="p">.</span><span class="na">TMSUCCESS</span><span class="p">);</span>
+<span class="w">        </span><span class="c1">// XA Prepare</span>
+<span class="w">        </span><span class="n">xaResource</span><span class="p">.</span><span class="na">prepare</span><span class="p">(</span><span class="n">xaBranchXid</span><span class="p">);</span>
+<span class="w">        </span><span class="c1">// Keep the Connection if necessary</span>
+<span class="w">        </span><span class="n">keepIfNecessary</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">XAException</span><span class="w"> </span><span class="n">xe</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// Branch Report to TC: Failed</span>
+<span class="w">            </span><span class="n">DefaultResourceManager</span><span class="p">.</span><span class="na">get</span><span class="p">().</span><span class="na">branchReport</span><span class="p">(</span><span class="n">BranchType</span><span class="p">.</span><span class="na">XA</span><span class="p">,</span><span class="w"> </span><span class="n">xid</span><span class="p">,</span><span class="w"> </span><span class="n">xaBranchXid</span><span class="p">.</span><span class="na">getBranchId</span><span class="p">(),</span>
+<span class="w">                </span><span class="n">BranchStatus</span><span class="p">.</span><span class="na">PhaseOne_Failed</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">TransactionException</span><span class="w"> </span><span class="n">te</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// 这儿只打印了一个 warn 级别的日志</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SQLException</span><span class="p">(</span>
+<span class="w">            </span><span class="s">"Failed to end(TMSUCCESS)/prepare xa branch on "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">"-"</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">xaBranchXid</span><span class="p">.</span><span class="na">getBranchId</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">" since "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">xe</span>
+<span class="w">                </span><span class="p">.</span><span class="na">getMessage</span><span class="p">(),</span><span class="w"> </span><span class="n">xe</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">cleanXABranchContext</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>从这个源码我们看到，commit 主要做了三件事：</p>
+<ul>
+<li>调用数据源的 XA end</li>
+<li>调用数据源的 XA prepare</li>
+<li>向 TC 报告分支事务状态</li>
+</ul>
+<p>到这里就可以看到，Seata 把 XA 协议的前两个阶段合成了一个阶段。</p>
+<h3 id="2-xa-commit">2. XA commit</h3>
+<p>这里的调用关系用一个时序图来表示：</p>
+<p><img alt="XA commit 阶段的调用时序" src="/assets/images/posts/xa-distributed-transaction/06.jpeg" /></p>
+<p>看一下 <code>RmBranchCommitProcessor</code> 类的 <code>process</code> 方法，代码如下：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@Override</span>
+<span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="n">ChannelHandlerContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="n">RpcMessage</span><span class="w"> </span><span class="n">rpcMessage</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">remoteAddress</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">NetUtil</span><span class="p">.</span><span class="na">toStringAddress</span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="na">channel</span><span class="p">().</span><span class="na">remoteAddress</span><span class="p">());</span>
+<span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rpcMessage</span><span class="p">.</span><span class="na">getBody</span><span class="p">();</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">LOGGER</span><span class="p">.</span><span class="na">isInfoEnabled</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">LOGGER</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">"rm client handle branch commit process:"</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">msg</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="n">handleBranchCommit</span><span class="p">(</span><span class="n">rpcMessage</span><span class="p">,</span><span class="w"> </span><span class="n">remoteAddress</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">BranchCommitRequest</span><span class="p">)</span><span class="w"> </span><span class="n">msg</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>从调用关系时序图可以看出，上面的 <code>handleBranchCommit</code> 方法最终调用了 <code>AbstractRMHandler</code> 的 <code>handle</code> 方法，最后通过 <code>branchCommit</code> 方法调用了 <code>ResourceManagerXA</code> 类的 <code>finishBranch</code> 方法。</p>
+<p><code>ResourceManagerXA</code> 类是 XA 模式的资源管理器，看下面这个类图，也就是 Seata 中资源管理器（RM）的 UML 类图：</p>
+<p><img alt="Seata 中资源管理器的 UML 类图" src="/assets/images/posts/xa-distributed-transaction/07.jpeg" /></p>
+<p>上面的 <code>finishBranch</code> 方法调用了 <code>connectionProxyXA.xaCommit</code> 方法，最后看一下 <code>xaCommit</code> 方法：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">xaCommit</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">xid</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">branchId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">applicationData</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">XAException</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">XAXid</span><span class="w"> </span><span class="n">xaXid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">XAXidBuilder</span><span class="p">.</span><span class="na">build</span><span class="p">(</span><span class="n">xid</span><span class="p">,</span><span class="w"> </span><span class="n">branchId</span><span class="p">);</span>
+<span class="w">    </span><span class="c1">// 因为使用 MySQL，这里 xaResource 是 MysqlXAConnection</span>
+<span class="w">    </span><span class="n">xaResource</span><span class="p">.</span><span class="na">commit</span><span class="p">(</span><span class="n">xaXid</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">);</span>
+<span class="w">    </span><span class="n">releaseIfNecessary</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>上面调用了数据源的 commit 方法，提交了 RM 分支事务。到这里，整个 RM 分支事务就结束了。Rollback 的代码逻辑跟 commit 类似。</p>
+<p>最后要说明的是，上面的 <code>xaResource</code> 是 <code>mysql-connector-java.jar</code> 包中的 <code>MysqlXAConnection</code> 类实例，它封装了 MySQL 提供的 XA 协议接口。</p>
+<h2 id="_3">总结</h2>
+<ul>
+<li>Seata 中 XA 模式的实现是使用数据源代理完成的，底层使用了数据库对 XA 协议的原生支持。</li>
+<li>MySQL 的 Java 驱动库中，<code>MysqlXAConnection</code> 类封装了 XA 协议的底层接口供外部调用。</li>
+<li>跟 TCC 和 SAGA 模式需要在业务代码中实现 prepare / commit / rollback 逻辑相比，<strong>XA 模式对业务代码无侵入</strong>，这是它最大的优势；代价是依赖数据库本身的 XA 实现，且持有锁的时间更长。</li>
+</ul>]]></content:encoded>
+<category>分布式事务</category>
+<category>Seata</category>
+<category>MySQL</category>
+<category>微服务</category>
+    </item>
+    <item>
+      <title>dubbo-go 引入 RocketMQ 作为 RPC 的设计文档</title>
+      <link>https://jasondeng1997.github.io/posts/dubbo-go-rocketmq-rpc/</link>
+      <guid isPermaLink="true">https://jasondeng1997.github.io/posts/dubbo-go-rocketmq-rpc/</guid>
+      <pubDate>Sat, 22 Jan 2022 09:00:00 +0800</pubDate>
+      <description>把 RocketMQ 当作 RPC 通道来接进 dubbo-go：注册中心与 protocol 两个模块怎么拆、topic 粒度选方法还是选类、元数据往哪塞，以及条件路由为什么建议第一期不做。</description>
+      <content:encoded><![CDATA[<h2 id="_1">设计</h2>
+<p>实现基于 RocketMQ 的 RPC 能力，需要实现注册中心模块和 protocol 模块。</p>
+<h3 id="_2">术语</h3>
+<h4 id="_3">术语统一</h4>
+<table>
+<thead>
+<tr>
+<th>dubbo-go</th>
+<th>RocketMQ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>client</td>
+<td>producer</td>
+</tr>
+<tr>
+<td>service</td>
+<td>consumer</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_4">术语解释</h4>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>术语</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rocketmq</td>
+<td>broker</td>
+<td>数据存储组件</td>
+</tr>
+<tr>
+<td>rocketmq</td>
+<td>nameservice</td>
+<td>RocketMQ 的注册中心与管理中心</td>
+</tr>
+<tr>
+<td>dubbo</td>
+<td>元数据</td>
+<td>方法参数类型信息、方法请求与响应配置信息</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_5">架构流程</h3>
+<p><img alt="基于 RocketMQ 的 RPC 整体架构" src="/assets/images/posts/dubbo-go-rocketmq/01.png" /></p>
+<h4 id="rpc">RPC 流程</h4>
+<ol>
+<li>client 发送请求数据到 broker</li>
+<li>service 从 broker 拉取请求数据</li>
+<li>当业务处理完成，service 把响应数据发送到 broker</li>
+<li>client 从 broker 拉取响应数据</li>
+</ol>
+<h4 id="_6">注册流程</h4>
+<ol>
+<li>broker 向 nameservice 注册 broker、topic、queue 三类信息</li>
+<li>client 从 nameservice 拉取路由信息</li>
+</ol>
+<p>PS：</p>
+<ol>
+<li>元数据与配置中心可以不做任何改变</li>
+<li>也可以把元数据注册到 nameservice 中</li>
+</ol>
+<h3 id="_7">注册中心设计</h3>
+<ol>
+<li>mock 一个注册中心，把路由功能直接交给 RocketMQ</li>
+<li>以 nameserver 为注册中心</li>
+<li>以 topic 作为注册中心</li>
+</ol>
+<h3 id="protocol">protocol 设计</h3>
+<ol>
+<li>protocol 模块制定一套标准用于支持各种注册中心</li>
+<li>基于 dubbo-go 的 protocol 标准开发</li>
+</ol>
+<h3 id="_8">总结</h3>
+<ol>
+<li>可以实现多套注册中心</li>
+<li>注册中心与 protocol 的开发可以并行</li>
+</ol>
+<h3 id="_9">预计开发时间</h3>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>预计开发时间</th>
+<th>负责人</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>protocol</td>
+<td>1 月 22 日到 1 月 30 日</td>
+<td></td>
+</tr>
+<tr>
+<td>以 nameserver 为注册中心</td>
+<td>2 月 10 日</td>
+<td></td>
+</tr>
+<tr>
+<td>以 topic 作为注册中心</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="_10">实现细节问题</h2>
+<h3 id="topic">Topic 设定</h3>
+<ol>
+<li>一个 topic 对应一个方法</li>
+<li>一个 topic 对应一个类</li>
+</ol>
+<h4 id="_11">对比</h4>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>方法</th>
+<th>类</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Topic 量</td>
+<td>大</td>
+<td>中</td>
+<td>方法与类对比大概是 10:1。可以使用 tag 用于区别方法实现标签路由，只能基于 tag。标签路由与使用 tag 区别方法实现冲突了</td>
+</tr>
+<tr>
+<td>实现难度</td>
+<td>大且麻烦</td>
+<td>中</td>
+<td>方法：需要对 config 进行扩展；类：只需要对 invoker 进行维护。invoker 对应一个方法</td>
+</tr>
+<tr>
+<td>方法级别隔离</td>
+<td>可以</td>
+<td>不可以</td>
+<td>可以基于 tag 进行区别</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_12">问题</h3>
+<h4 id="rocketmq-client">RocketMQ-client 配置信息</h4>
+<p>client 的对象创建有一些关键的信息需要配置。</p>
+<h4 id="_13">传输数据</h4>
+<ul>
+<li>client：直接把 invoker 中相关数据直接当做 message 的 body 传递，不做任何加工</li>
+<li>server：直接解析 body</li>
+</ul>
+<h4 id="_14">元数据的传递</h4>
+<p>元数据可以放到 message 中的 <code>properties</code> 字段里面。</p>
+<h4 id="queue">queue 问题</h4>
+<p>是否允许多个 write queue？如果允许多个 write queue，需要多点进行维护：</p>
+<ol>
+<li>instance 的适配</li>
+<li>负载均衡每个算法</li>
+<li><code>Directory.cacheInvoker</code> 的 instance 与 invoker 的处理</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="kd">type</span><span class="w"> </span><span class="nx">Instance</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Valid</span><span class="w">       </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"valid"`</span>
+<span class="w">    </span><span class="nx">Marked</span><span class="w">      </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"marked"`</span>
+<span class="w">    </span><span class="nx">InstanceId</span><span class="w">  </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"instanceId"`</span>
+<span class="w">    </span><span class="nx">Port</span><span class="w">        </span><span class="kt">uint64</span><span class="w">            </span><span class="s">`json:"port"`</span>
+<span class="w">    </span><span class="nx">Ip</span><span class="w">          </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"ip"`</span>
+<span class="w">    </span><span class="nx">Weight</span><span class="w">      </span><span class="kt">float64</span><span class="w">           </span><span class="s">`json:"weight"`</span>
+<span class="w">    </span><span class="nx">Metadata</span><span class="w">    </span><span class="kt">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span><span class="w"> </span><span class="s">`json:"metadata"`</span>
+<span class="w">    </span><span class="nx">ClusterName</span><span class="w"> </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"clusterName"`</span>
+<span class="w">    </span><span class="nx">ServiceName</span><span class="w"> </span><span class="kt">string</span><span class="w">            </span><span class="s">`json:"serviceName"`</span>
+<span class="w">    </span><span class="nx">Enable</span><span class="w">      </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"enabled"`</span>
+<span class="w">    </span><span class="nx">Healthy</span><span class="w">     </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"healthy"`</span>
+<span class="w">    </span><span class="nx">Ephemeral</span><span class="w">   </span><span class="kt">bool</span><span class="w">              </span><span class="s">`json:"ephemeral"`</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h3 id="_15">基本功能情况</h3>
+<ol>
+<li>dubbo 的条件路由支持非常困难
+   - 如果需要支持：<ol>
+<li>需要对 broker 与 queue 进行标签</li>
+<li>server 端需要动态感知标签与动态监听
+   - <strong>不建议第一期就支持 dubbo 的条件路由</strong></li>
+</ol>
+</li>
+<li>tracing 的支持
+   - 开启 RocketMQ 的 tracing
+   - dubbo 与 RocketMQ 的兼容</li>
+</ol>]]></content:encoded>
+<category>dubbo-go</category>
+<category>RocketMQ</category>
+<category>RPC</category>
+<category>微服务</category>
+<category>Go</category>
+    </item>
+  </channel>
+</rss>

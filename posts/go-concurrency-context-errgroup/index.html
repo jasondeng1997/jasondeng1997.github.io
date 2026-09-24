@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Go 服务里的并发控制：从 context 到 errgroup 的工程实践 — JasonDeng 的技术随笔</title>
+<meta name="description" content="把 context 当成&#34;取消信号广播器&#34;而不是参数袋子，用 errgroup 管住一批 goroutine 的生命周期，再配合 semaphore 限流——一套可以直接抄进项目的并发控制骨架。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="Go,并发编程,工程实践,后端">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/go-concurrency-context-errgroup/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="Go 服务里的并发控制：从 context 到 errgroup 的工程实践">
+<meta property="og:description" content="把 context 当成&#34;取消信号广播器&#34;而不是参数袋子，用 errgroup 管住一批 goroutine 的生命周期，再配合 semaphore 限流——一套可以直接抄进项目的并发控制骨架。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/go-concurrency-context-errgroup/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Go \u670d\u52a1\u91cc\u7684\u5e76\u53d1\u63a7\u5236\uff1a\u4ece context \u5230 errgroup \u7684\u5de5\u7a0b\u5b9e\u8df5",
+  "description": "\u628a context \u5f53\u6210\"\u53d6\u6d88\u4fe1\u53f7\u5e7f\u64ad\u5668\"\u800c\u4e0d\u662f\u53c2\u6570\u888b\u5b50\uff0c\u7528 errgroup \u7ba1\u4f4f\u4e00\u6279 goroutine \u7684\u751f\u547d\u5468\u671f\uff0c\u518d\u914d\u5408 semaphore \u9650\u6d41\u2014\u2014\u4e00\u5957\u53ef\u4ee5\u76f4\u63a5\u6284\u8fdb\u9879\u76ee\u7684\u5e76\u53d1\u63a7\u5236\u9aa8\u67b6\u3002",
+  "datePublished": "2026-09-18",
+  "dateModified": "2026-09-18",
+  "url": "https://jasondeng1997.github.io/posts/go-concurrency-context-errgroup/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "Go,\u5e76\u53d1\u7f16\u7a0b,\u5de5\u7a0b\u5b9e\u8df5,\u540e\u7aef",
+  "articleSection": "Go"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2026-09-18</span>
+      </nav>
+      <h1>Go 服务里的并发控制：从 context 到 errgroup 的工程实践</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">把 context 当成&#34;取消信号广播器&#34;而不是参数袋子，用 errgroup 管住一批 goroutine 的生命周期，再配合 semaphore 限流——一套可以直接抄进项目的并发控制骨架。</p>      <div class="article-head__meta">
+        <span>2026-09-18</span>
+        <span class="dot"></span>
+        <span>3 分钟阅读</span>
+<span class="dot"></span><span>约 1140 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/go/">#Go</a><a class="tag" href="/tags/concurrency/">#并发编程</a><a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/backend/">#后端</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p>写 Go 服务最容易被低估的一件事，是<strong>给 goroutine 收尾</strong>。起协程谁都会，难的是在请求被取消、某个下游超时、进程收到 SIGTERM 的时候，让这一批协程干净地退出去。这篇文章把我自己项目里反复用的那套骨架整理出来。</p>
+<h2 id="context">一、先把 context 的角色摆正</h2>
+<p>很多代码里 <code>context.Context</code> 沦为了"参数袋子"——<code>ctx</code> 里塞 DB 连接、塞用户信息、塞 trace id。这会让函数签名失去意义，也会让取消语义变得模糊。</p>
+<p>我更推荐的划分：</p>
+<table>
+<thead>
+<tr>
+<th>内容</th>
+<th>放哪</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>取消信号 / deadline</td>
+<td><code>context</code></td>
+<td>它的本职</td>
+</tr>
+<tr>
+<td>trace id / request id</td>
+<td><code>context</code></td>
+<td>需要跨层透传，且是请求级生命周期</td>
+</tr>
+<tr>
+<td>用户身份</td>
+<td><code>context</code></td>
+<td>同上</td>
+</tr>
+<tr>
+<td>DB 连接池、配置对象</td>
+<td>结构体字段</td>
+<td>生命周期比请求长</td>
+</tr>
+<tr>
+<td>可选参数</td>
+<td>options 结构体</td>
+<td>与生命周期无关</td>
+</tr>
+</tbody>
+</table>
+<p>关键判据是<strong>生命周期</strong>：跟着单次请求生、跟着单次请求死的东西，才属于 context。</p>
+<p>一个常见的反面写法：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 反例：在库里用 context.Background() 切断了取消链</span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">Repo</span><span class="p">)</span><span class="w"> </span><span class="nx">GetUser</span><span class="p">(</span><span class="nx">id</span><span class="w"> </span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">User</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">()</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">db</span><span class="p">.</span><span class="nx">QueryContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">"select * from user where id = ?"</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>上游已经超时了，这个查询还在傻跑。正确做法是把 <code>ctx</code> 一路透传：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">Repo</span><span class="p">)</span><span class="w"> </span><span class="nx">GetUser</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="w"> </span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">User</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">db</span><span class="p">.</span><span class="nx">QueryContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">"select * from user where id = ?"</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<blockquote>
+<p>一个经验法则：<strong>凡是可能阻塞的调用，第一个参数都应该是 <code>ctx</code></strong>，包括 HTTP、DB、RPC、channel 收发、<code>time.Sleep</code>（用 <code>select</code> + <code>time.After</code> 替代）。</p>
+</blockquote>
+<h2 id="context_1">二、context 的三条纪律</h2>
+<ol>
+<li><strong>谁创建，谁 cancel。</strong> <code>context.WithCancel</code> / <code>WithTimeout</code> 返回的 <code>cancel</code> 必须被调用，否则会泄漏 timer。稳妥写法是紧跟着 <code>defer cancel()</code>：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">parent</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span>
+<span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span><span class="w"> </span><span class="c1">// 即使提前 return 也不会泄漏</span>
+</code></pre></div>
+
+<ol start="2">
+<li>
+<p><strong>不把 context 存进结构体。</strong> 唯一的例外是 struct 本身就是"一次请求的上下文载体"，而且不会跨请求复用。</p>
+</li>
+<li>
+<p><strong>不用 <code>nil</code> context。</strong> 不确定就用 <code>context.TODO()</code>，它的存在就是为了让代码可编译、又可被搜索出来。</p>
+</li>
+</ol>
+<h2 id="errgroup-goroutine">三、用 errgroup 管住一批 goroutine</h2>
+<p><code>errgroup</code> 解决的是"并发发起 N 个任务，任一失败就整体取消，并且要能等到所有任务收尾"这个需求。它是 <code>sync.WaitGroup</code> 的加强版，多了两件事：<strong>错误传播</strong>和<strong>取消传播</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">Service</span><span class="p">)</span><span class="w"> </span><span class="nx">Detail</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="w"> </span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">Detail</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">errgroup</span><span class="p">.</span><span class="nx">WithContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">user</span><span class="w"> </span><span class="o">*</span><span class="nx">User</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">orders</span><span class="w"> </span><span class="p">[]</span><span class="nx">Order</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">coupons</span><span class="w"> </span><span class="p">[]</span><span class="nx">Coupon</span>
+
+<span class="w">    </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">var</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span>
+<span class="w">        </span><span class="nx">user</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">userRepo</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="p">)</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">})</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">var</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span>
+<span class="w">        </span><span class="nx">orders</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">orderRepo</span><span class="p">.</span><span class="nx">ListByUser</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="p">)</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">})</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">var</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span>
+<span class="w">        </span><span class="nx">coupons</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">couponRepo</span><span class="p">.</span><span class="nx">ListValid</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">uid</span><span class="p">)</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">})</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">g</span><span class="p">.</span><span class="nx">Wait</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">Detail</span><span class="p">{</span><span class="nx">User</span><span class="p">:</span><span class="w"> </span><span class="nx">user</span><span class="p">,</span><span class="w"> </span><span class="nx">Orders</span><span class="p">:</span><span class="w"> </span><span class="nx">orders</span><span class="p">,</span><span class="w"> </span><span class="nx">Coupons</span><span class="p">:</span><span class="w"> </span><span class="nx">coupons</span><span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>这里有三个细节值得强调：</p>
+<ul>
+<li><code>g, ctx := errgroup.WithContext(ctx)</code> 返回的 <code>ctx</code> 会在<strong>任一</strong> goroutine 返回错误时被取消。所以另外两个 goroutine 里的 <code>ctx</code> 会立刻感知到，能提前退出。</li>
+<li><code>g.Wait()</code> 会等<strong>所有</strong> goroutine 返回，而不是第一个错误就返回。所以你不必担心变量被并发读写的悬垂问题——但也正因为如此，每个 goroutine 的返回值要能安全丢弃。</li>
+<li>这里的 <code>user</code>/<code>orders</code>/<code>coupons</code> 是不同变量，各写各的，没有 data race。<strong>如果是往同一个 slice 里 append，就一定需要加锁或预分配按索引写。</strong></li>
+</ul>
+<h3 id="_1">加上并发上限</h3>
+<p>无脑并发在依赖出问题时会把下游打垮，也会把自己的连接池耗光。<code>errgroup</code> 配 <code>semaphore</code> 是最省事的限流方式：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="s">"golang.org/x/sync/semaphore"</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">Service</span><span class="p">)</span><span class="w"> </span><span class="nx">BatchGet</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">ids</span><span class="w"> </span><span class="p">[]</span><span class="kt">int64</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="o">*</span><span class="nx">Item</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">errgroup</span><span class="p">.</span><span class="nx">WithContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">sem</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">semaphore</span><span class="p">.</span><span class="nx">NewWeighted</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="c1">// 最多 8 个并发</span>
+<span class="w">    </span><span class="nx">result</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">([]</span><span class="o">*</span><span class="nx">Item</span><span class="p">,</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">ids</span><span class="p">))</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">ids</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">sem</span><span class="p">.</span><span class="nx">Acquire</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="c1">// ctx 已取消，直接退出</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span>
+<span class="w">        </span><span class="nx">g</span><span class="p">.</span><span class="nx">Go</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">defer</span><span class="w"> </span><span class="nx">sem</span><span class="p">.</span><span class="nx">Release</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">            </span><span class="nx">item</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">repo</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">id</span><span class="p">)</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">            </span><span class="nx">result</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">item</span><span class="w"> </span><span class="c1">// 按索引写，天然无竞争</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
+<span class="w">        </span><span class="p">})</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">g</span><span class="p">.</span><span class="nx">Wait</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">result</span><span class="p">,</span><span class="w"> </span><span class="kc">nil</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>i, id := i, id</code> 这一行在 Go 1.22 之前是必须的；Go 1.22 起循环变量改为每轮独立，可以省掉，但显式写出来也读得懂。</p>
+<h2 id="_2">四、优雅退出：让信号一路传到最底层</h2>
+<p>服务收到 SIGTERM 之后要做的事，本质上是<strong>先停止接受新请求，再给在途请求留时间，最后释放资源</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">stop</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">signal</span><span class="p">.</span><span class="nx">NotifyContext</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="nx">syscall</span><span class="p">.</span><span class="nx">SIGINT</span><span class="p">,</span><span class="w"> </span><span class="nx">syscall</span><span class="p">.</span><span class="nx">SIGTERM</span><span class="p">)</span>
+<span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">stop</span><span class="p">()</span>
+
+<span class="w">    </span><span class="nx">srv</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">http</span><span class="p">.</span><span class="nx">Server</span><span class="p">{</span><span class="nx">Addr</span><span class="p">:</span><span class="w"> </span><span class="s">":8080"</span><span class="p">,</span><span class="w"> </span><span class="nx">Handler</span><span class="p">:</span><span class="w"> </span><span class="nx">router</span><span class="p">()}</span>
+
+<span class="w">    </span><span class="k">go</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">srv</span><span class="p">.</span><span class="nx">ListenAndServe</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">errors</span><span class="p">.</span><span class="nx">Is</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">ErrServerClosed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatalf</span><span class="p">(</span><span class="s">"listen: %v"</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}()</span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">"server started on :8080"</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">&lt;-</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">Done</span><span class="p">()</span><span class="w"> </span><span class="c1">// 收到信号</span>
+<span class="w">    </span><span class="nx">stop</span><span class="p">()</span><span class="w">       </span><span class="c1">// 恢复默认信号行为，再按一次 Ctrl+C 直接强杀</span>
+
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">"shutting down..."</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">shutdownCtx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="mi">15</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span>
+<span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">srv</span><span class="p">.</span><span class="nx">Shutdown</span><span class="p">(</span><span class="nx">shutdownCtx</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"graceful shutdown failed: %v"</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">"server exited"</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>几点实践经验：</p>
+<ul>
+<li><code>signal.NotifyContext</code> 比手写 <code>signal.Notify</code> + channel 干净得多，Go 1.16+ 可用。</li>
+<li>关闭超时不要设太长。K8s 的 <code>terminationGracePeriodSeconds</code> 默认 30s，本地 grace 设 15s 左右比较合适；如果超过，Pod 会被 <code>SIGKILL</code>，设置再长也没意义。</li>
+<li>注意 <code>srv.Shutdown</code> <strong>不会</strong>等待 hijack 连接（比如 WebSocket），需要自己维护连接列表。</li>
+<li>后台常驻的 goroutine（消费 MQ、定时任务）也要接同一个 <code>ctx</code>，否则它们会在服务"退出"后继续跑。</li>
+</ul>
+<h2 id="_3">五、一组容易踩的坑</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>原因</th>
+<th>修法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>goroutine 数持续上涨</td>
+<td>上游 <code>context.Background()</code> 切断了取消链</td>
+<td>全链路透传 ctx</td>
+</tr>
+<tr>
+<td>CPU 空转</td>
+<td><code>for { select {} }</code> 里缺 default 导致忙等</td>
+<td>加 <code>runtime.Gosched()</code> 或改成长阻塞 select</td>
+</tr>
+<tr>
+<td>定时器泄漏</td>
+<td><code>WithTimeout</code> 的 cancel 没调</td>
+<td><code>defer cancel()</code></td>
+</tr>
+<tr>
+<td>超时不起作用</td>
+<td>客户端设了超时但 DB 层用 Background</td>
+<td>检查每一层是否都传了 ctx</td>
+</tr>
+<tr>
+<td>偶发 data race</td>
+<td>多 goroutine 写同一个 map/slice</td>
+<td>按索引写、加锁，或改 channel 收口</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_4">小结</h2>
+<ul>
+<li><code>context</code> 是<strong>取消信号广播器</strong>，判据是生命周期而非"能不能少传个参数"。</li>
+<li><code>errgroup</code> + <code>semaphore</code> 是绝大多数"并发取数"场景的标准答案：错误能传播、取消能传播、并发有上限。</li>
+<li>优雅退出要做三件事：停接新请求 → 等在途请求（有超时）→ 释放资源，并且信号要传到每一个常驻 goroutine。</li>
+</ul>
+<p>这套骨架我在几个服务里用了两三年，基本没有再因为并发收尾出过线上问题。如果你的项目还在裸用 <code>sync.WaitGroup</code>，值得花半小时换过来。</p>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#context">一、先把 context 的角色摆正</a></li><li><a href="#context_1">二、context 的三条纪律</a></li><li><a href="#errgroup-goroutine">三、用 errgroup 管住一批 goroutine</a><ul><li><a href="#_1">加上并发上限</a></li></ul></li><li><a href="#_2">四、优雅退出：让信号一路传到最底层</a></li><li><a href="#_3">五、一组容易踩的坑</a></li><li><a href="#_4">小结</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/go/">#Go</a><a class="tag" href="/tags/concurrency/">#并发编程</a><a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/backend/">#后端</a>    </div>
+
+    <div class="post-nav">
+<div class="empty"></div>      <a href="/posts/mysql-index-not-used-cases/" style="text-align:right">
+        <span class="dir">下一篇 · 2026-08-20 →</span>
+        <span class="ttl">MySQL 索引失效的 12 个真实场景复盘</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 6 篇文章 · 构建于 2026-09-24 15:42</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

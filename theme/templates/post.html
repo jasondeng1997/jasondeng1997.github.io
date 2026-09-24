@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }} — {{ site.title }}{% endblock %}
+{% block description %}{{ post.summary or site.description }}{% endblock %}
+{% block keywords %}{{ post.tags | join(',') }}{% endblock %}
+{% block ogtype %}article{% endblock %}
+{% block ogtitle %}{{ post.title }}{% endblock %}
+{% block ogdescription %}{{ post.summary or site.description }}{% endblock %}
+
+{% block jsonld %}
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": {{ post.title | tojson }},
+  "description": {{ (post.summary or "") | tojson }},
+  "datePublished": "{{ post.date }}",
+  "dateModified": "{{ post.date }}",
+  "url": "{{ site.url }}{{ post.url }}",
+  "author": { "@type": "Person", "name": {{ site.author.name | tojson }}, "url": {{ site.author.github | tojson }} },
+  "publisher": { "@type": "Organization", "name": {{ site.title | tojson }} },
+  "keywords": {{ post.tags | join(',') | tojson }},
+  "articleSection": {{ (post.tags[0] if post.tags else "") | tojson }}
+}
+{% endblock %}
+
+{% block content %}
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>{{ post.date }}</span>
+      </nav>
+      <h1>{{ post.title }}</h1>
+      {% if post.summary %}<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">{{ post.summary }}</p>{% endif %}
+      <div class="article-head__meta">
+        <span>{{ post.date }}</span>
+        <span class="dot"></span>
+        <span>{{ post.reading }} 分钟阅读</span>
+        {% if post.words %}<span class="dot"></span><span>约 {{ post.words }} 字</span>{% endif %}
+        {% if post.updated and post.updated != post.date %}<span class="dot"></span><span>更新于 {{ post.updated }}</span>{% endif %}
+      </div>
+      {% if post.tags %}
+      <div class="article-head__tags">
+        {% for t in post.tag_links %}<a class="tag" href="/tags/{{ t.slug }}/">#{{ t.name }}</a>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      {{ post.html | safe }}
+    </article>
+
+    {% if post.toc %}
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      {{ post.toc | safe }}
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+    {% endif %}
+  </div>
+
+  <footer class="article-foot">
+    {% if post.tags %}
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+      {% for t in post.tag_links %}<a class="tag" href="/tags/{{ t.slug }}/">#{{ t.name }}</a>{% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="post-nav">
+      {% if prev_post %}
+      <a href="{{ prev_post.url }}">
+        <span class="dir">← 上一篇 · {{ prev_post.date }}</span>
+        <span class="ttl">{{ prev_post.title }}</span>
+      </a>
+      {% else %}<div class="empty"></div>{% endif %}
+      {% if next_post %}
+      <a href="{{ next_post.url }}" style="text-align:right">
+        <span class="dir">下一篇 · {{ next_post.date }} →</span>
+        <span class="ttl">{{ next_post.title }}</span>
+      </a>
+      {% else %}<div class="empty"></div>{% endif %}
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="{{ site.author.github }}/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+{% endblock %}

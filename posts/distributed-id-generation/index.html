@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>分布式 ID 生成方案横评：雪花、号段与 Leaf — JasonDeng 的技术随笔</title>
+<meta name="description" content="自增主键在分库分表下不够用了怎么办？把 UUID、数据库自增、号段模式、雪花算法、美团 Leaf、百度 UidGenerator 放在一起，从趋势递增、时钟回拨、可用性三个维度做横向对比，并给出选型决策树。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="分布式系统,架构设计,后端,高并发">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/distributed-id-generation/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="分布式 ID 生成方案横评：雪花、号段与 Leaf">
+<meta property="og:description" content="自增主键在分库分表下不够用了怎么办？把 UUID、数据库自增、号段模式、雪花算法、美团 Leaf、百度 UidGenerator 放在一起，从趋势递增、时钟回拨、可用性三个维度做横向对比，并给出选型决策树。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/distributed-id-generation/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "\u5206\u5e03\u5f0f ID \u751f\u6210\u65b9\u6848\u6a2a\u8bc4\uff1a\u96ea\u82b1\u3001\u53f7\u6bb5\u4e0e Leaf",
+  "description": "\u81ea\u589e\u4e3b\u952e\u5728\u5206\u5e93\u5206\u8868\u4e0b\u4e0d\u591f\u7528\u4e86\u600e\u4e48\u529e\uff1f\u628a UUID\u3001\u6570\u636e\u5e93\u81ea\u589e\u3001\u53f7\u6bb5\u6a21\u5f0f\u3001\u96ea\u82b1\u7b97\u6cd5\u3001\u7f8e\u56e2 Leaf\u3001\u767e\u5ea6 UidGenerator \u653e\u5728\u4e00\u8d77\uff0c\u4ece\u8d8b\u52bf\u9012\u589e\u3001\u65f6\u949f\u56de\u62e8\u3001\u53ef\u7528\u6027\u4e09\u4e2a\u7ef4\u5ea6\u505a\u6a2a\u5411\u5bf9\u6bd4\uff0c\u5e76\u7ed9\u51fa\u9009\u578b\u51b3\u7b56\u6811\u3002",
+  "datePublished": "2026-07-12",
+  "dateModified": "2026-07-12",
+  "url": "https://jasondeng1997.github.io/posts/distributed-id-generation/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "\u5206\u5e03\u5f0f\u7cfb\u7edf,\u67b6\u6784\u8bbe\u8ba1,\u540e\u7aef,\u9ad8\u5e76\u53d1",
+  "articleSection": "\u5206\u5e03\u5f0f\u7cfb\u7edf"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2026-07-12</span>
+      </nav>
+      <h1>分布式 ID 生成方案横评：雪花、号段与 Leaf</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">自增主键在分库分表下不够用了怎么办？把 UUID、数据库自增、号段模式、雪花算法、美团 Leaf、百度 UidGenerator 放在一起，从趋势递增、时钟回拨、可用性三个维度做横向对比，并给出选型决策树。</p>      <div class="article-head__meta">
+        <span>2026-07-12</span>
+        <span class="dot"></span>
+        <span>3 分钟阅读</span>
+<span class="dot"></span><span>约 1256 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/distributed-system/">#分布式系统</a><a class="tag" href="/tags/architecture/">#架构设计</a><a class="tag" href="/tags/backend/">#后端</a><a class="tag" href="/tags/high-concurrency/">#高并发</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p>分库分表之后，第一个撞上的问题往往就是主键。单表自增在多个库上会互相冲突，而如果用 UUID，插入性能又会掉得很难看。这篇把常见的几套方案摊开对比一遍。</p>
+<h2 id="_1">一、先明确需求</h2>
+<p>选型之前先回答四个问题，答案基本就唯一了：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>为什么重要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ID 需要<strong>趋势递增</strong>吗？</td>
+<td>影响 InnoDB 聚簇索引的插入性能、以及分页/排序的可读性</td>
+</tr>
+<tr>
+<td>ID 会不会<strong>暴露给外部</strong>（URL、接口）？</td>
+<td>递增 ID 会泄露业务量、可被遍历爬取</td>
+</tr>
+<tr>
+<td>允许<strong>多长</strong>？</td>
+<td>64 位能塞进 <code>BIGINT</code>，128 位只能存字符串</td>
+</tr>
+<tr>
+<td>能接受<strong>多高的可用性要求</strong>？</td>
+<td>依赖中心服务 vs 完全去中心化</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_2">二、六种方案逐个看</h2>
+<h3 id="1-uuid">1. UUID</h3>
+<div class="codehilite"><pre><span></span><code><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">UUID</span><span class="p">.</span><span class="na">randomUUID</span><span class="p">().</span><span class="na">toString</span><span class="p">();</span><span class="w"> </span><span class="c1">// 36 字符</span>
+</code></pre></div>
+
+<ul>
+<li>✅ 完全本地生成，无网络开销，无单点</li>
+<li>❌ 无序，作为 InnoDB 主键会导致<strong>页分裂</strong>，写入性能极差</li>
+<li>❌ 36 字符占用大，二级索引也跟着膨胀</li>
+<li>❌ 不可读</li>
+</ul>
+<p><strong>结论</strong>：不要用作主键。可以作为<strong>业务无关的唯一标识</strong>（如 trace id、文件 key）使用。如果非要用，用 UUIDv7（时间有序）会好很多。</p>
+<h3 id="2">2. 数据库自增 + 步长</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">-- 库 1</span>
+<span class="n">auto_increment_increment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
+<span class="n">auto_increment_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w">   </span><span class="c1">-- 生成 1, 3, 5, 7...</span>
+<span class="c1">-- 库 2</span>
+<span class="n">auto_increment_increment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
+<span class="n">auto_increment_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="w">   </span><span class="c1">-- 生成 2, 4, 6, 8...</span>
+</code></pre></div>
+
+<ul>
+<li>✅ 实现最简单，趋势递增</li>
+<li>❌ 扩容麻烦：加一个库就要改所有库的步长，且要停机或精心规划</li>
+<li>❌ 强依赖 DB 可用性</li>
+</ul>
+<p><strong>结论</strong>：库数量固定、规模不大的场景可用。超过 3 个分片就别这么玩了。</p>
+<h3 id="3-segment">3. 号段模式（Segment）</h3>
+<p>核心思路：<strong>一次从数据库取一批 ID 缓存在内存，用完再取</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">id_segment</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="n">biz_tag</span><span class="w">     </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="n">max_id</span><span class="w">      </span><span class="nb">BIGINT</span><span class="w">      </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="n">step</span><span class="w">        </span><span class="nb">INT</span><span class="w">         </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="n">update_time</span><span class="w"> </span><span class="k">TIMESTAMP</span><span class="w">   </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">  </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">biz_tag</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="c1">-- 取号段：一次原子地推进 max_id，拿到 [old_max_id+1, new_max_id]</span>
+<span class="k">UPDATE</span><span class="w"> </span><span class="n">id_segment</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">max_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">max_id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">step</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">biz_tag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'order'</span><span class="p">;</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="n">max_id</span><span class="p">,</span><span class="w"> </span><span class="n">step</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">id_segment</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">biz_tag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'order'</span><span class="p">;</span>
+</code></pre></div>
+
+<p>再做一个<strong>双 buffer</strong>：当前号段消耗到 10% 时，异步去取下一个号段。这样取号段的那次 DB 抖动不会阻塞业务。</p>
+<ul>
+<li>✅ 趋势递增，ID 连续可读</li>
+<li>✅ 数据库压力极小（1 万 QPS 下大约几十秒才查一次库）</li>
+<li>✅ 步长可动态调整，扩容方便</li>
+<li>❌ 依赖 DB；号段浪费（重启会丢弃未用完的号段）</li>
+<li>❌ ID 会<strong>跳变</strong>，不适合做严格连续的流水号</li>
+</ul>
+<p><strong>结论</strong>：<strong>最推荐的通用方案</strong>。美团 Leaf-segment、滴滴 TinyID 都是这个思路。</p>
+<h3 id="4-snowflake">4. 雪花算法（Snowflake）</h3>
+<p>经典 64 位布局：</p>
+<div class="codehilite"><pre><span></span><code>0 | 41 bit 时间戳(ms) | 10 bit 机器ID | 12 bit 序列号
+</code></pre></div>
+
+<ul>
+<li>✅ 完全本地生成，性能极高（单机每秒 400 万+）</li>
+<li>✅ 趋势递增，<code>BIGINT</code> 可存</li>
+<li>❌ <strong>强依赖时钟</strong>，时钟回拨会产生重复 ID</li>
+<li>❌ 机器 ID 分配需要额外机制（ZK / 配置中心 / Redis）</li>
+<li>❌ 41 位时间戳只够用约 69 年</li>
+</ul>
+<p><strong>时钟回拨</strong>是最需要认真处理的：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">public</span><span class="w"> </span><span class="kd">synchronized</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="nf">nextId</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">long</span><span class="w"> </span><span class="n">now</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">now</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">now</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">offset</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// 小回拨：等待追平</span>
+<span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">wait</span><span class="p">(</span><span class="n">offset</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span>
+<span class="w">                </span><span class="n">now</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">now</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">"clock moved backwards"</span><span class="p">);</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">InterruptedException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">Thread</span><span class="p">.</span><span class="na">currentThread</span><span class="p">().</span><span class="na">interrupt</span><span class="p">();</span>
+<span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">"interrupted while waiting clock"</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// 大回拨：直接报错，让上层重试（或切换到备用 workerId）</span>
+<span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">"clock moved backwards by "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">offset</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">"ms"</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// ... 正常生成逻辑</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>生产环境还要注意：NTP 同步时<strong>不要用 <code>-</code> 大步长跳变</strong>，改用 <code>slew</code> 模式平滑校正。</p>
+<h3 id="5-leaf-snowflake">5. 美团 Leaf-snowflake</h3>
+<p>在雪花基础上补了两个短板：</p>
+<ul>
+<li><strong>workerId 自动分配</strong>：启动时用 ZK 顺序节点拿到唯一 workerId，并写入本地文件缓存，ZK 挂了也能启动。</li>
+<li><strong>时钟回拨检测</strong>：启动时对比本地时间与 ZK 上记录的上次时间，不一致就告警并拒绝启动。</li>
+</ul>
+<h3 id="6-uidgenerator">6. 百度 UidGenerator</h3>
+<p>用 <code>RingBuffer</code> 预生成 ID，进一步减少同步开销，吞吐比裸雪花更高。但依赖数据库分配 workerId，且 ID 位宽布局与雪花不兼容（时间戳左移、序列号在低位）。</p>
+<h2 id="_3">三、横向对比</h2>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>趋势递增</th>
+<th>性能</th>
+<th>依赖</th>
+<th>时钟敏感</th>
+<th>长度</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UUID</td>
+<td>❌</td>
+<td>极高</td>
+<td>无</td>
+<td>否</td>
+<td>128 bit</td>
+<td>非主键的唯一标识</td>
+</tr>
+<tr>
+<td>DB 自增+步长</td>
+<td>✅</td>
+<td>中</td>
+<td>DB</td>
+<td>否</td>
+<td>64 bit</td>
+<td>分片少、规模小</td>
+</tr>
+<tr>
+<td>号段模式</td>
+<td>✅</td>
+<td>高</td>
+<td>DB</td>
+<td>否</td>
+<td>64 bit</td>
+<td><strong>通用首选</strong></td>
+</tr>
+<tr>
+<td>雪花算法</td>
+<td>✅</td>
+<td>极高</td>
+<td>机器 ID 分配</td>
+<td><strong>是</strong></td>
+<td>64 bit</td>
+<td>超高并发、可容忍少量跳号</td>
+</tr>
+<tr>
+<td>Leaf-snowflake</td>
+<td>✅</td>
+<td>极高</td>
+<td>ZK</td>
+<td>是</td>
+<td>64 bit</td>
+<td>超高并发 + 运维规范</td>
+</tr>
+<tr>
+<td>UidGenerator</td>
+<td>✅</td>
+<td>极高</td>
+<td>DB</td>
+<td>是</td>
+<td>64 bit</td>
+<td>极致吞吐</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_4">四、选型决策树</h2>
+<div class="codehilite"><pre><span></span><code>需要对外暴露 ID 且不希望被猜出业务量？
+├── 是 → 不要用纯自增/雪花的原始值，加一层「ID 混淆」
+│        （如 Hashids、或内部 ID ↔ 外部短码 的映射表）
+└── 否
+    └── 单机 QPS 是否超过 5 万？
+        ├── 否 → 号段模式（Leaf-segment / TinyID）
+        │        运维成本最低，可读性最好
+        └── 是 → 雪花算法
+                 ├── 有 ZK/etcd → Leaf-snowflake
+                 └── 无 → 自研雪花 + 配置中心分配 workerId
+                        + 时钟回拨兜底策略
+</code></pre></div>
+
+<h2 id="_5">五、几个工程细节</h2>
+<p><strong>1. 号段模式要预留降级路径</strong></p>
+<p>DB 挂掉时，如果本地还有剩余号段，服务能继续撑一会儿。可以把号段缓存到本地文件，重启后先尝试恢复。</p>
+<p><strong>2. 雪花算法的 workerId 不要用 IP 末位</strong></p>
+<p>IP 会变、会重复（容器环境下），一定要走中心化分配或 K8s StatefulSet 的序号。</p>
+<p><strong>3. 不要用业务时间做 ID 的一部分</strong></p>
+<p>见过用 <code>yyyyMMdd + 自增</code> 的，跨零点时自增重置，直接撞 ID。</p>
+<p><strong>4. 考虑 ID 的"可读性"</strong></p>
+<p>运维排查时，能从 ID 看出生成时间（雪花就能）是很爽的体验。如果团队经常需要按 ID 定位时间段，优先选雪花类方案。</p>
+<p><strong>5. 分库分表路由与 ID 生成解耦</strong></p>
+<p>不要因为"分 8 张表"就把 ID 设计成 <code>用户ID &lt;&lt; 4 | 表序号</code>，后面改分片数会痛不欲生。用独立的 ID 生成器，路由用另外的字段（如 <code>user_id</code>）。</p>
+<h2 id="_6">小结</h2>
+<ul>
+<li>大部分业务，<strong>号段模式</strong>是最优解：够快、够简单、够好运维。</li>
+<li>超高并发场景再上<strong>雪花</strong>，但一定要把<strong>时钟回拨</strong>和<strong>workerId 分配</strong>这两件事做扎实。</li>
+<li>UUID 不是不能用，是别当主键用。</li>
+</ul>
+<p>最后一句：ID 生成器是基础设施，<strong>上线前一定要做单点故障演练</strong>——手动把生成服务停掉，看业务能撑多久。</p>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#_1">一、先明确需求</a></li><li><a href="#_2">二、六种方案逐个看</a><ul><li><a href="#1-uuid">1. UUID</a></li><li><a href="#2">2. 数据库自增 + 步长</a></li><li><a href="#3-segment">3. 号段模式（Segment）</a></li><li><a href="#4-snowflake">4. 雪花算法（Snowflake）</a></li><li><a href="#5-leaf-snowflake">5. 美团 Leaf-snowflake</a></li><li><a href="#6-uidgenerator">6. 百度 UidGenerator</a></li></ul></li><li><a href="#_3">三、横向对比</a></li><li><a href="#_4">四、选型决策树</a></li><li><a href="#_5">五、几个工程细节</a></li><li><a href="#_6">小结</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/distributed-system/">#分布式系统</a><a class="tag" href="/tags/architecture/">#架构设计</a><a class="tag" href="/tags/backend/">#后端</a><a class="tag" href="/tags/high-concurrency/">#高并发</a>    </div>
+
+    <div class="post-nav">
+      <a href="/posts/mysql-index-not-used-cases/">
+        <span class="dir">← 上一篇 · 2026-08-20</span>
+        <span class="ttl">MySQL 索引失效的 12 个真实场景复盘</span>
+      </a>
+      <a href="/posts/tech-doc-templates/" style="text-align:right">
+        <span class="dir">下一篇 · 2026-06-05 →</span>
+        <span class="ttl">写技术文档的 5 个模板：让半年后的自己看得懂</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 6 篇文章 · 构建于 2026-09-24 15:42</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

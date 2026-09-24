@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>关于 — JasonDeng 的技术随笔</title>
+<meta name="description" content="JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="JasonDeng,技术博客,后端,Go,Java,分布式,中间件,微服务,RocketMQ,dubbo-go">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/about/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="JasonDeng 的技术随笔">
+<meta property="og:description" content="JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。">
+<meta property="og:url" content="https://jasondeng1997.github.io/about/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Blog",
+  "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14",
+  "description": "JasonDeng \u7684\u4e2a\u4eba\u6280\u672f\u535a\u5ba2\u3002\u8bb0\u5f55\u540e\u7aef\u5de5\u7a0b\u5b9e\u8df5\u3001\u5206\u5e03\u5f0f\u7cfb\u7edf\u3001\u4e2d\u95f4\u4ef6\u6e90\u7801\u9605\u8bfb\u4e0e\u65e5\u5e38\u8e29\u5751\u590d\u76d8\u3002",
+  "url": "https://jasondeng1997.github.io",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" }
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/" aria-current="page">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap">
+    <h1>关于</h1>
+  </div>
+</header>
+
+<section class="section">
+  <div class="wrap">
+    <article class="prose">
+      <h2 id="_1">关于我</h2>
+<ul>
+<li><strong>邮箱</strong>：15301580353@163.com</li>
+<li><strong>坐标</strong>：上海</li>
+<li><strong>经历</strong>：2020 年毕业于南京某 211，现就职于上海某芯片国企，从事 IoT 相关研发</li>
+<li><strong>语言</strong>：Java、Go</li>
+</ul>
+<p>平时的工作大致是三件事：写业务代码、读中间件源码、把踩过的坑写成文档。这个博客就是第三件事的产物。</p>
+<h2 id="_2">关于这个站</h2>
+<p>原来的老站（2022 年）只有两篇手写 HTML 的文章，更新一次要手改 index.html，实在提不起劲。所以把它重做了一遍：</p>
+<ul>
+<li><strong>内容</strong>：用 Markdown 写作，<code>content/posts/</code> 下的每个 <code>.md</code> 文件就是一篇文章</li>
+<li><strong>构建</strong>：<code>build.py</code> 是一个零依赖设计的静态生成器，负责渲染 Markdown、生成标签页与归档页、产出 RSS 与搜索索引</li>
+<li><strong>发布</strong>：提交 Markdown 后由 GitHub Actions 自动构建并发布到 GitHub Pages</li>
+<li><strong>图片</strong>：统一放在 <code>assets/images/</code> 下，随站点一起托管</li>
+</ul>
+<p>写作流程因此变得很短——在 <code>/admin/</code> 页面里写好 Markdown，点发布，一分钟内就能上线。</p>
+<h2 id="_3">关于旧文</h2>
+<p>老站的两篇文章（<a href="/posts/xa-distributed-transaction/">分布式事务 XA 模式</a>、<a href="/posts/dubbo-go-rocketmq-rpc/">dubbo-go 引入 RocketMQ</a>）已经迁移过来，原文的图片一并转存到本站，老链接做了 301 跳转，不会失效。</p>
+<h2 id="_4">聊两句</h2>
+<p>如果你在分布式事务、RPC 或者 Go 工程实践上有什么想法，欢迎邮件交流。</p>
+<blockquote>
+<p>2022/01/30，JasonDeng，于上海。</p>
+</blockquote>
+    </article>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 6 篇文章 · 构建于 2026-09-24 15:42</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

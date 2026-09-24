@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}标签 — {{ site.title }}{% endblock %}
+{% block description %}{{ site.title }} 的全部标签，共 {{ tag_count }} 个。{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div class="wrap">
+    <h1>标签</h1>
+    <p>共 {{ tag_count }} 个标签，点击查看该标签下的全部文章。</p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="tag-grid">
+      {% for t in tags %}
+      <a class="tag-card" href="/tags/{{ t.slug }}/">
+        <div class="tag-card__name">{{ t.name }}</div>
+        <div class="tag-card__count">{{ t.count }} 篇文章</div>
+        {% if t.preview %}<div class="tag-card__preview">{{ t.preview | join(' · ') }}</div>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

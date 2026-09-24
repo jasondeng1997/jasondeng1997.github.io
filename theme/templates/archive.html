@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}归档 — {{ site.title }}{% endblock %}
+{% block description %}{{ site.title }} 全部文章归档，共 {{ post_count }} 篇。{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div class="wrap">
+    <h1>归档</h1>
+    <p>共 {{ post_count }} 篇文章，按时间倒序排列。也可以用 <kbd>/</kbd> 直接搜索。</p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    {% for group in groups %}
+      <div class="archive-year">{{ group.year }} 年 · {{ group.posts | length }} 篇</div>
+      {% for p in group.posts %}
+      <a class="archive-item" href="{{ p.url }}">
+        <time datetime="{{ p.date }}">{{ p.date }}</time>
+        <span class="ttl">{{ p.title }}</span>
+        <span class="arrow">→</span>
+      </a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="section__head"><h2>按标签浏览</h2></div>
+    {{ m.tag_chips(tags, 40) }}
+  </div>
+</section>
+{% endblock %}

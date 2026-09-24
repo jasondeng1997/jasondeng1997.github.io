@@ -1,0 +1,53 @@
+name: Build Blog
+
+# 只在内容/模板/脚本变化时触发构建，构建产物的回写提交不会再次触发，避免死循环
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'content/**'
+      - 'theme/**'
+      - 'assets/images/**'
+      - 'build.py'
+      - 'requirements.txt'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-blog
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build site
+        run: python build.py
+
+      - name: Commit built output
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "没有需要提交的构建产物"
+          else
+            git commit -m "build: 自动构建站点 [skip ci]"
+            git push
+            echo "构建产物已提交"
+          fi

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}页面走丢了 — {{ site.title }}{% endblock %}
+
+{% block content %}
+<section class="wrap nf">
+  <div class="nf__code">404</div>
+  <p>这个地址下没有内容。可能是链接过期了，或者文章被改名了。</p>
+  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+    <a class="btn btn--primary" href="/">回到首页</a>
+    <a class="btn" href="/archive/">看看全部文章</a>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="section__head"><h2>也许你想找</h2></div>
+    <div class="post-list">
+      {% for p in posts[:4] %}
+      <a class="post-card" href="{{ p.url }}">
+        <div class="post-card__meta"><span>{{ p.date }}</span></div>
+        <h3>{{ p.title }}</h3>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

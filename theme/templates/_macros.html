@@ -1,0 +1,31 @@
+{% macro post_card(p) %}
+<a class="post-card" href="{{ p.url }}">
+  <div class="post-card__meta">
+    <span>{{ p.date }}</span>
+    <span class="dot"></span>
+    <span>{{ p.reading }} 分钟阅读</span>
+    {% if p.words %}<span class="dot"></span><span>{{ p.words }} 字</span>{% endif %}
+  </div>
+  <h3>{{ p.title }}</h3>
+  {% if p.summary %}<p>{{ p.summary }}</p>{% endif %}
+  {% if p.tags %}
+  <div class="post-card__tags">
+    {% for t in p.tags %}<span class="tag">#{{ t }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</a>
+{% endmacro %}
+
+{% macro post_list(posts) %}
+<div class="post-list">
+  {% for p in posts %}{{ post_card(p) }}{% endfor %}
+</div>
+{% endmacro %}
+
+{% macro tag_chips(tags, limit) %}
+<div class="tag-cloud">
+  {% for t in tags[:limit] %}
+    <a class="tag" href="/tags/{{ t.slug }}/">#{{ t.name }}<span class="count">{{ t.count }}</span></a>
+  {% endfor %}
+</div>
+{% endmacro %}

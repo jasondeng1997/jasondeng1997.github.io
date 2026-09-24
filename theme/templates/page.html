@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page.title }} — {{ site.title }}{% endblock %}
+{% block description %}{{ page.summary or site.description }}{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <div class="wrap">
+    <h1>{{ page.title }}</h1>
+    {% if page.summary %}<p>{{ page.summary }}</p>{% endif %}
+  </div>
+</header>
+
+<section class="section">
+  <div class="wrap">
+    <article class="prose">
+      {{ page.html | safe }}
+    </article>
+  </div>
+</section>
+{% endblock %}

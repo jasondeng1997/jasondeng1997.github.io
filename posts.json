@@ -1,0 +1,75 @@
+[
+  {
+    "title": "Go 服务里的并发控制：从 context 到 errgroup 的工程实践",
+    "url": "/posts/go-concurrency-context-errgroup/",
+    "date": "2026-09-18",
+    "tags": [
+      "Go",
+      "并发编程",
+      "工程实践",
+      "后端"
+    ],
+    "summary": "把 context 当成\"取消信号广播器\"而不是参数袋子，用 errgroup 管住一批 goroutine 的生命周期，再配合 semaphore 限流——一套可以直接抄进项目的并发控制骨架。"
+  },
+  {
+    "title": "MySQL 索引失效的 12 个真实场景复盘",
+    "url": "/posts/mysql-index-not-used-cases/",
+    "date": "2026-08-20",
+    "tags": [
+      "MySQL",
+      "数据库",
+      "性能优化",
+      "后端"
+    ],
+    "summary": "把线上慢查询日志里反复出现的索引失效场景整理成 12 条：每条给出复现 SQL、为什么失效、以及改写成什么样。文末附一套排查 checklist。"
+  },
+  {
+    "title": "分布式 ID 生成方案横评：雪花、号段与 Leaf",
+    "url": "/posts/distributed-id-generation/",
+    "date": "2026-07-12",
+    "tags": [
+      "分布式系统",
+      "架构设计",
+      "后端",
+      "高并发"
+    ],
+    "summary": "自增主键在分库分表下不够用了怎么办？把 UUID、数据库自增、号段模式、雪花算法、美团 Leaf、百度 UidGenerator 放在一起，从趋势递增、时钟回拨、可用性三个维度做横向对比，并给出选型决策树。"
+  },
+  {
+    "title": "写技术文档的 5 个模板：让半年后的自己看得懂",
+    "url": "/posts/tech-doc-templates/",
+    "date": "2026-06-05",
+    "tags": [
+      "工程实践",
+      "技术写作",
+      "效率",
+      "团队协作"
+    ],
+    "summary": "设计文档、故障复盘、README、源码分析、变更记录——这 5 类技术文档各有固定的信息骨架。给出可直接复制的模板，以及一条判断\"该不该写文档\"的标准。"
+  },
+  {
+    "title": "6 张图带你彻底搞懂分布式事务 XA 模式",
+    "url": "/posts/xa-distributed-transaction/",
+    "date": "2022-11-16",
+    "tags": [
+      "分布式事务",
+      "Seata",
+      "MySQL",
+      "微服务"
+    ],
+    "summary": "从 XA 协议到两阶段/三阶段提交的取舍，再顺着 Seata 的数据源代理一路读到底层 XA end/prepare 的源码，把 XA 模式为什么对业务无侵入讲清楚。"
+  },
+  {
+    "title": "dubbo-go 引入 RocketMQ 作为 RPC 的设计文档",
+    "url": "/posts/dubbo-go-rocketmq-rpc/",
+    "date": "2022-01-22",
+    "tags": [
+      "dubbo-go",
+      "RocketMQ",
+      "RPC",
+      "微服务",
+      "Go"
+    ],
+    "summary": "把 RocketMQ 当作 RPC 通道来接进 dubbo-go：注册中心与 protocol 两个模块怎么拆、topic 粒度选方法还是选类、元数据往哪塞，以及条件路由为什么建议第一期不做。"
+  }
+]

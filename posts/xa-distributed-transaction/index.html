@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>6 张图带你彻底搞懂分布式事务 XA 模式 — JasonDeng 的技术随笔</title>
+<meta name="description" content="从 XA 协议到两阶段/三阶段提交的取舍，再顺着 Seata 的数据源代理一路读到底层 XA end/prepare 的源码，把 XA 模式为什么对业务无侵入讲清楚。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="分布式事务,Seata,MySQL,微服务">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/xa-distributed-transaction/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="6 张图带你彻底搞懂分布式事务 XA 模式">
+<meta property="og:description" content="从 XA 协议到两阶段/三阶段提交的取舍，再顺着 Seata 的数据源代理一路读到底层 XA end/prepare 的源码，把 XA 模式为什么对业务无侵入讲清楚。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/xa-distributed-transaction/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "6 \u5f20\u56fe\u5e26\u4f60\u5f7b\u5e95\u641e\u61c2\u5206\u5e03\u5f0f\u4e8b\u52a1 XA \u6a21\u5f0f",
+  "description": "\u4ece XA \u534f\u8bae\u5230\u4e24\u9636\u6bb5/\u4e09\u9636\u6bb5\u63d0\u4ea4\u7684\u53d6\u820d\uff0c\u518d\u987a\u7740 Seata \u7684\u6570\u636e\u6e90\u4ee3\u7406\u4e00\u8def\u8bfb\u5230\u5e95\u5c42 XA end/prepare \u7684\u6e90\u7801\uff0c\u628a XA \u6a21\u5f0f\u4e3a\u4ec0\u4e48\u5bf9\u4e1a\u52a1\u65e0\u4fb5\u5165\u8bb2\u6e05\u695a\u3002",
+  "datePublished": "2022-11-16",
+  "dateModified": "2022-11-16",
+  "url": "https://jasondeng1997.github.io/posts/xa-distributed-transaction/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "\u5206\u5e03\u5f0f\u4e8b\u52a1,Seata,MySQL,\u5fae\u670d\u52a1",
+  "articleSection": "\u5206\u5e03\u5f0f\u4e8b\u52a1"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2022-11-16</span>
+      </nav>
+      <h1>6 张图带你彻底搞懂分布式事务 XA 模式</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">从 XA 协议到两阶段/三阶段提交的取舍，再顺着 Seata 的数据源代理一路读到底层 XA end/prepare 的源码，把 XA 模式为什么对业务无侵入讲清楚。</p>      <div class="article-head__meta">
+        <span>2022-11-16</span>
+        <span class="dot"></span>
+        <span>4 分钟阅读</span>
+<span class="dot"></span><span>约 1657 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/distributed-transaction/">#分布式事务</a><a class="tag" href="/tags/seata/">#Seata</a><a class="tag" href="/tags/mysql/">#MySQL</a><a class="tag" href="/tags/microservices/">#微服务</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p>XA 协议是由 X/Open 组织提出的分布式事务处理规范，主要定义了事务管理器 TM 和局部资源管理器 RM 之间的接口。目前主流的数据库，比如 Oracle、DB2 都是支持 XA 协议的。</p>
+<p>MySQL 从 5.0 版本开始，InnoDB 存储引擎已经支持 XA 协议，今天这篇源码分析使用的实验环境就是 MySQL。</p>
+<p><img alt="分布式事务中 TM 与 RM 的整体角色划分" src="/assets/images/posts/xa-distributed-transaction/01.jpeg" /></p>
+<h2 id="_1">两阶段提交</h2>
+<p>分布式事务的两阶段提交是把整个事务提交分为 prepare 和 commit 两个阶段。以电商系统为例，分布式系统中有订单、账户和库存三个服务，如下图：</p>
+<p><img alt="订单、账户、库存三个服务参与同一个全局事务" src="/assets/images/posts/xa-distributed-transaction/02.jpeg" /></p>
+<ul>
+<li>第一阶段，事务协调者向事务参与者发送 prepare 请求，事务参与者收到请求后，如果可以提交事务，回复 yes，否则回复 no。</li>
+<li>第二阶段，如果所有事务参与者都回复了 yes，事务协调者向所有事务参与者发送 commit 请求，否则发送 rollback 请求。</li>
+</ul>
+<p>两阶段提交存在三个问题：</p>
+<ul>
+<li><strong>同步阻塞</strong>：本地事务在 prepare 阶段锁定资源，如果有其他事务也要修改 xiaoming 这个账户，就必须等待前面的事务完成，这样就造成了系统性能下降。</li>
+<li><strong>协调节点单点故障</strong>：如果第一阶段 prepare 成功了，但第二阶段协调节点发出 commit 指令之前宕机了，所有服务的数据资源处于锁定状态，事务将无限期地等待。</li>
+<li><strong>数据不一致</strong>：如果第一阶段 prepare 成功了，但第二阶段协调节点向某个节点发送 commit 命令时失败，就会导致数据不一致。</li>
+</ul>
+<h2 id="_2">三阶段提交</h2>
+<p>为了解决两阶段提交的问题，三阶段提交做了改进：</p>
+<ul>
+<li>在协调节点和事务参与者都引入了超时机制。</li>
+<li>第一阶段的 prepare 阶段分成了两步：canCommit 和 preCommit。</li>
+</ul>
+<p>如下图：</p>
+<p><img alt="三阶段提交把 prepare 拆成了 canCommit 与 preCommit" src="/assets/images/posts/xa-distributed-transaction/03.jpeg" /></p>
+<p>引入 preCommit 阶段后，协调节点会在 commit 之前再次检查各个事务参与者的状态，保证它们的状态是一致的。但是也存在问题：如果第三阶段发出 rollback 请求，有的节点没有收到，那没有收到的节点会在超时之后进行提交，造成数据不一致。</p>
+<h2 id="xa">XA 事务语法介绍</h2>
+<p>XA 事务的语法如下，三阶段的第一阶段是开启 XA 事务，这里 xid 为全局事务 id：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="err">{</span><span class="k">START</span><span class="o">|</span><span class="k">BEGIN</span><span class="err">}</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="p">[</span><span class="k">JOIN</span><span class="o">|</span><span class="n">RESUME</span><span class="p">]</span>
+</code></pre></div>
+
+<p>结束 XA 事务：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="k">END</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="p">[</span><span class="n">SUSPEND</span><span class="w"> </span><span class="p">[</span><span class="k">FOR</span><span class="w"> </span><span class="n">MIGRATE</span><span class="p">]]</span>
+</code></pre></div>
+
+<p>三阶段的第二阶段，即 prepare：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="k">PREPARE</span><span class="w"> </span><span class="n">xid</span>
+</code></pre></div>
+
+<p>三阶段的第三阶段，即 commit / rollback：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="k">COMMIT</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="p">[</span><span class="n">ONE</span><span class="w"> </span><span class="n">PHASE</span><span class="p">]</span>
+<span class="n">XA</span><span class="w"> </span><span class="k">ROLLBACK</span><span class="w"> </span><span class="n">xid</span>
+</code></pre></div>
+
+<p>查看处于 PREPARE 阶段的所有事务：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">XA</span><span class="w"> </span><span class="n">RECOVER</span>
+<span class="n">XA</span><span class="w"> </span><span class="n">RECOVER</span><span class="w"> </span><span class="p">[</span><span class="k">CONVERT</span><span class="w"> </span><span class="n">XID</span><span class="p">]</span>
+</code></pre></div>
+
+<h2 id="seata-xa">Seata XA 简介</h2>
+<p>Seata 是阿里推出的一款开源分布式事务解决方案，目前有 AT、TCC、SAGA、XA 四种模式。</p>
+<p>Seata 的 XA 模式是利用分支事务中数据库对 XA 协议的支持来实现的。看一下官网的介绍：</p>
+<p><img alt="Seata XA 模式的整体流程" src="/assets/images/posts/xa-distributed-transaction/04.jpeg" /></p>
+<p>从上面的图可以看到，Seata XA 模式的流程跟其他模式一样：</p>
+<ol>
+<li>TM 开启全局事务</li>
+<li>RM 向 TC 注册分支事务</li>
+<li>RM 向 TC 报告分支事务状态</li>
+<li>TC 向 RM 发送 commit / rollback 请求</li>
+<li>TM 结束全局事务</li>
+</ol>
+<p>这里再介绍一下 RM 客户端初始化关联的 UML 类图：</p>
+<p><img alt="RM 客户端初始化关联的核心类" src="/assets/images/posts/xa-distributed-transaction/05.jpeg" /></p>
+<p>这个图中有一个类是 <code>AbstractNettyRemotingClient</code>，它的内部类 <code>ClientHandler</code> 负责处理 TC 发来的请求，并委托给父类 <code>AbstractNettyRemoting</code> 的 <code>processMessage</code> 方法。<code>processMessage</code> 方法最终调用 <code>RmBranchCommitProcessor</code> 类的 <code>process</code> 方法。</p>
+<p>需要注意的是，<strong>Seata 的 XA 模式对传统的三阶段提交做了优化，改成了两阶段提交</strong>：</p>
+<ul>
+<li>第一阶段执行 XA 开启、执行 SQL、XA 结束三个步骤，之后直接执行 XA prepare。</li>
+<li>第二阶段执行 XA commit / rollback。</li>
+</ul>
+<p>MySQL 目前是支持 Seata XA 模式的两阶段优化的。</p>
+<p><strong>但是这个优化对 Oracle 不支持</strong>，因为 Oracle 实现的是标准的 XA 协议，即 XA end 后，协调节点向事务参与者统一发送 prepare，最后再发送 commit / rollback。这也导致了 Seata 的 XA 模式对 Oracle 支持不太好。</p>
+<h2 id="seata-xa_1">Seata XA 源码</h2>
+<p>Seata 中的 XA 模式是使用数据源代理来实现的，需要手动配置数据源代理，代码如下：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@Bean</span>
+<span class="nd">@ConfigurationProperties</span><span class="p">(</span><span class="n">prefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">"spring.datasource"</span><span class="p">)</span>
+<span class="kd">public</span><span class="w"> </span><span class="n">DruidDataSource</span><span class="w"> </span><span class="nf">druidDataSource</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DruidDataSource</span><span class="p">();</span>
+<span class="p">}</span>
+
+<span class="nd">@Bean</span><span class="p">(</span><span class="s">"dataSourceProxy"</span><span class="p">)</span>
+<span class="kd">public</span><span class="w"> </span><span class="n">DataSource</span><span class="w"> </span><span class="nf">dataSource</span><span class="p">(</span><span class="n">DruidDataSource</span><span class="w"> </span><span class="n">druidDataSource</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DataSourceProxyXA</span><span class="p">(</span><span class="n">druidDataSource</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<ul>
+<li>也可以根据普通 <code>DataSource</code> 来创建 <code>XAConnection</code>，但是这种方式有兼容性问题（比如 Oracle），所以 Seata 使用了开发者自己配置 <code>XADataSource</code>。</li>
+<li>Seata 提供的 XA 数据源代理，要求代码框架中必须使用 Druid 连接池。</li>
+</ul>
+<h3 id="1-xa">1. XA 第一阶段</h3>
+<p>当 RM 收到 DML 请求后，Seata 会使用 <code>ExecuteTemplateXA</code> 来执行，执行方法 <code>execute</code> 中有一个地方很关键，就是把 <code>autocommit</code> 属性改为了 <code>false</code>，而 MySQL 默认 <code>autocommit</code> 是 <code>true</code>。事务提交之后，还要把 <code>autocommit</code> 改回默认。</p>
+<p>下面看一下 XA 第一阶段提交的主要代码。</p>
+<p><strong>1）开启 XA</strong></p>
+<p><code>ConnectionProxyXA</code> 类的 <code>setAutoCommit</code> 方法中，XA start 主要做了三件事：</p>
+<ul>
+<li>向 TC 注册分支事务</li>
+<li>调用数据源的 XA Start</li>
+</ul>
+<div class="codehilite"><pre><span></span><code><span class="n">xaResource</span><span class="p">.</span><span class="na">start</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">xaBranchXid</span><span class="p">,</span><span class="w"> </span><span class="n">XAResource</span><span class="p">.</span><span class="na">TMNOFLAGS</span><span class="p">);</span>
+</code></pre></div>
+
+<ul>
+<li>把 <code>xaActive</code> 设置为 <code>true</code></li>
+</ul>
+<p>RM 并没有直接使用 TC 返回的 <code>branchId</code> 作为 XA 数据源的 <code>branchId</code>，而是使用全局事务 id（xid）和 <code>branchId</code> 重新构建了一个。</p>
+<p><strong>2）执行 SQL</strong></p>
+<p>调用 <code>PreparedStatementProxyXA</code> 的 <code>execute</code> 执行 SQL。</p>
+<p><strong>3）XA end / prepare</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">commit</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// 省略部分源代码</span>
+<span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// XA End: Success</span>
+<span class="w">        </span><span class="n">xaResource</span><span class="p">.</span><span class="na">end</span><span class="p">(</span><span class="n">xaBranchXid</span><span class="p">,</span><span class="w"> </span><span class="n">XAResource</span><span class="p">.</span><span class="na">TMSUCCESS</span><span class="p">);</span>
+<span class="w">        </span><span class="c1">// XA Prepare</span>
+<span class="w">        </span><span class="n">xaResource</span><span class="p">.</span><span class="na">prepare</span><span class="p">(</span><span class="n">xaBranchXid</span><span class="p">);</span>
+<span class="w">        </span><span class="c1">// Keep the Connection if necessary</span>
+<span class="w">        </span><span class="n">keepIfNecessary</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">XAException</span><span class="w"> </span><span class="n">xe</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// Branch Report to TC: Failed</span>
+<span class="w">            </span><span class="n">DefaultResourceManager</span><span class="p">.</span><span class="na">get</span><span class="p">().</span><span class="na">branchReport</span><span class="p">(</span><span class="n">BranchType</span><span class="p">.</span><span class="na">XA</span><span class="p">,</span><span class="w"> </span><span class="n">xid</span><span class="p">,</span><span class="w"> </span><span class="n">xaBranchXid</span><span class="p">.</span><span class="na">getBranchId</span><span class="p">(),</span>
+<span class="w">                </span><span class="n">BranchStatus</span><span class="p">.</span><span class="na">PhaseOne_Failed</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">TransactionException</span><span class="w"> </span><span class="n">te</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// 这儿只打印了一个 warn 级别的日志</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SQLException</span><span class="p">(</span>
+<span class="w">            </span><span class="s">"Failed to end(TMSUCCESS)/prepare xa branch on "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">xid</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">"-"</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">xaBranchXid</span><span class="p">.</span><span class="na">getBranchId</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">" since "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">xe</span>
+<span class="w">                </span><span class="p">.</span><span class="na">getMessage</span><span class="p">(),</span><span class="w"> </span><span class="n">xe</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">cleanXABranchContext</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>从这个源码我们看到，commit 主要做了三件事：</p>
+<ul>
+<li>调用数据源的 XA end</li>
+<li>调用数据源的 XA prepare</li>
+<li>向 TC 报告分支事务状态</li>
+</ul>
+<p>到这里就可以看到，Seata 把 XA 协议的前两个阶段合成了一个阶段。</p>
+<h3 id="2-xa-commit">2. XA commit</h3>
+<p>这里的调用关系用一个时序图来表示：</p>
+<p><img alt="XA commit 阶段的调用时序" src="/assets/images/posts/xa-distributed-transaction/06.jpeg" /></p>
+<p>看一下 <code>RmBranchCommitProcessor</code> 类的 <code>process</code> 方法，代码如下：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@Override</span>
+<span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="n">ChannelHandlerContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="n">RpcMessage</span><span class="w"> </span><span class="n">rpcMessage</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">remoteAddress</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">NetUtil</span><span class="p">.</span><span class="na">toStringAddress</span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="na">channel</span><span class="p">().</span><span class="na">remoteAddress</span><span class="p">());</span>
+<span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rpcMessage</span><span class="p">.</span><span class="na">getBody</span><span class="p">();</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">LOGGER</span><span class="p">.</span><span class="na">isInfoEnabled</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">LOGGER</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">"rm client handle branch commit process:"</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">msg</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="n">handleBranchCommit</span><span class="p">(</span><span class="n">rpcMessage</span><span class="p">,</span><span class="w"> </span><span class="n">remoteAddress</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">BranchCommitRequest</span><span class="p">)</span><span class="w"> </span><span class="n">msg</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>从调用关系时序图可以看出，上面的 <code>handleBranchCommit</code> 方法最终调用了 <code>AbstractRMHandler</code> 的 <code>handle</code> 方法，最后通过 <code>branchCommit</code> 方法调用了 <code>ResourceManagerXA</code> 类的 <code>finishBranch</code> 方法。</p>
+<p><code>ResourceManagerXA</code> 类是 XA 模式的资源管理器，看下面这个类图，也就是 Seata 中资源管理器（RM）的 UML 类图：</p>
+<p><img alt="Seata 中资源管理器的 UML 类图" src="/assets/images/posts/xa-distributed-transaction/07.jpeg" /></p>
+<p>上面的 <code>finishBranch</code> 方法调用了 <code>connectionProxyXA.xaCommit</code> 方法，最后看一下 <code>xaCommit</code> 方法：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">xaCommit</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">xid</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">branchId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">applicationData</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">XAException</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">XAXid</span><span class="w"> </span><span class="n">xaXid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">XAXidBuilder</span><span class="p">.</span><span class="na">build</span><span class="p">(</span><span class="n">xid</span><span class="p">,</span><span class="w"> </span><span class="n">branchId</span><span class="p">);</span>
+<span class="w">    </span><span class="c1">// 因为使用 MySQL，这里 xaResource 是 MysqlXAConnection</span>
+<span class="w">    </span><span class="n">xaResource</span><span class="p">.</span><span class="na">commit</span><span class="p">(</span><span class="n">xaXid</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">);</span>
+<span class="w">    </span><span class="n">releaseIfNecessary</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>上面调用了数据源的 commit 方法，提交了 RM 分支事务。到这里，整个 RM 分支事务就结束了。Rollback 的代码逻辑跟 commit 类似。</p>
+<p>最后要说明的是，上面的 <code>xaResource</code> 是 <code>mysql-connector-java.jar</code> 包中的 <code>MysqlXAConnection</code> 类实例，它封装了 MySQL 提供的 XA 协议接口。</p>
+<h2 id="_3">总结</h2>
+<ul>
+<li>Seata 中 XA 模式的实现是使用数据源代理完成的，底层使用了数据库对 XA 协议的原生支持。</li>
+<li>MySQL 的 Java 驱动库中，<code>MysqlXAConnection</code> 类封装了 XA 协议的底层接口供外部调用。</li>
+<li>跟 TCC 和 SAGA 模式需要在业务代码中实现 prepare / commit / rollback 逻辑相比，<strong>XA 模式对业务代码无侵入</strong>，这是它最大的优势；代价是依赖数据库本身的 XA 实现，且持有锁的时间更长。</li>
+</ul>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#_1">两阶段提交</a></li><li><a href="#_2">三阶段提交</a></li><li><a href="#xa">XA 事务语法介绍</a></li><li><a href="#seata-xa">Seata XA 简介</a></li><li><a href="#seata-xa_1">Seata XA 源码</a><ul><li><a href="#1-xa">1. XA 第一阶段</a></li><li><a href="#2-xa-commit">2. XA commit</a></li></ul></li><li><a href="#_3">总结</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/distributed-transaction/">#分布式事务</a><a class="tag" href="/tags/seata/">#Seata</a><a class="tag" href="/tags/mysql/">#MySQL</a><a class="tag" href="/tags/microservices/">#微服务</a>    </div>
+
+    <div class="post-nav">
+      <a href="/posts/tech-doc-templates/">
+        <span class="dir">← 上一篇 · 2026-06-05</span>
+        <span class="ttl">写技术文档的 5 个模板：让半年后的自己看得懂</span>
+      </a>
+      <a href="/posts/dubbo-go-rocketmq-rpc/" style="text-align:right">
+        <span class="dir">下一篇 · 2022-01-22 →</span>
+        <span class="ttl">dubbo-go 引入 RocketMQ 作为 RPC 的设计文档</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 6 篇文章 · 构建于 2026-09-24 15:42</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>
