@@ -3,12 +3,12 @@
   "shortTitle": "JasonDeng",
   "subtitle": "通用技术随笔 · 后端工程 · 分布式系统 · 中间件源码",
   "description": "JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。",
-  "keywords": "JasonDeng,技术博客,后端,Go,Java,分布式,中间件,微服务,RocketMQ,dubbo-go",
+  "keywords": "JasonDeng,技术博客,后端,Go,Java,分布式,中间件,微服务,RocketMQ,Apache Dubbo,Dubbo Committer",
   "url": "https://jasondeng1997.github.io",
   "author": {
     "name": "JasonDeng",
     "email": "15301580353@163.com",
-    "bio": "2020 年毕业于南京某 211，现就职于上海某芯片国企，从事 IoT 相关研发。主力语言 Java / Go，喜欢读中间件源码，也喜欢把踩过的坑写成文档。",
+    "bio": "Apache Dubbo Committer，北大光华。",
     "location": "上海",
     "github": "https://github.com/jasondeng1997",
     "juejin": "https://juejin.cn/user/3711599231642845"
