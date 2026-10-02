@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>配了负载均衡策略却没生效：从四行 case 挖出三处沉睡的 bug — JasonDeng 的技术随笔</title>
+<meta name="description" content="load-balance.type 配成 ConsistentHashLoadBalance 或 LeastActiveLoadBalance，行为却和随机一样，没有报错也没有日志。补上分发表里缺的两个 case 只是开始——策略一旦真的可达，三个一直睡着的缺陷会被同时激活。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="Go,分布式事务,Seata,负载均衡">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/seata-go-loadbalance-dispatch/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="配了负载均衡策略却没生效：从四行 case 挖出三处沉睡的 bug">
+<meta property="og:description" content="load-balance.type 配成 ConsistentHashLoadBalance 或 LeastActiveLoadBalance，行为却和随机一样，没有报错也没有日志。补上分发表里缺的两个 case 只是开始——策略一旦真的可达，三个一直睡着的缺陷会被同时激活。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/seata-go-loadbalance-dispatch/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "\u914d\u4e86\u8d1f\u8f7d\u5747\u8861\u7b56\u7565\u5374\u6ca1\u751f\u6548\uff1a\u4ece\u56db\u884c case \u6316\u51fa\u4e09\u5904\u6c89\u7761\u7684 bug",
+  "description": "load-balance.type \u914d\u6210 ConsistentHashLoadBalance \u6216 LeastActiveLoadBalance\uff0c\u884c\u4e3a\u5374\u548c\u968f\u673a\u4e00\u6837\uff0c\u6ca1\u6709\u62a5\u9519\u4e5f\u6ca1\u6709\u65e5\u5fd7\u3002\u8865\u4e0a\u5206\u53d1\u8868\u91cc\u7f3a\u7684\u4e24\u4e2a case \u53ea\u662f\u5f00\u59cb\u2014\u2014\u7b56\u7565\u4e00\u65e6\u771f\u7684\u53ef\u8fbe\uff0c\u4e09\u4e2a\u4e00\u76f4\u7761\u7740\u7684\u7f3a\u9677\u4f1a\u88ab\u540c\u65f6\u6fc0\u6d3b\u3002",
+  "datePublished": "2026-10-02",
+  "dateModified": "2026-10-02",
+  "url": "https://jasondeng1997.github.io/posts/seata-go-loadbalance-dispatch/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "Go,\u5206\u5e03\u5f0f\u4e8b\u52a1,Seata,\u8d1f\u8f7d\u5747\u8861",
+  "articleSection": "Go"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2026-10-02</span>
+      </nav>
+      <h1>配了负载均衡策略却没生效：从四行 case 挖出三处沉睡的 bug</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">load-balance.type 配成 ConsistentHashLoadBalance 或 LeastActiveLoadBalance，行为却和随机一样，没有报错也没有日志。补上分发表里缺的两个 case 只是开始——策略一旦真的可达，三个一直睡着的缺陷会被同时激活。</p>      <div class="article-head__meta">
+        <span>2026-10-02</span>
+        <span class="dot"></span>
+        <span>5 分钟阅读</span>
+<span class="dot"></span><span>约 1684 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/go/">#Go</a><a class="tag" href="/tags/distributed-transaction/">#分布式事务</a><a class="tag" href="/tags/seata/">#Seata</a><a class="tag" href="/tags/负载均衡/">#负载均衡</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p>在 apache/incubator-seata-go 修了一个"配置正确但不生效"的 bug。表面上看是分发表漏了两个 <code>case</code>，四行就能补完；但真正花时间的是补完之后发生的事：<strong>那两个策略第一次真的可达，于是三处早就写错、却因为死代码而从未被执行的逻辑，同时变成了现网行为。</strong></p>
+<p>这个 PR 最后是 12 个文件、+404/−25，其中新增测试 250 行——四行 <code>case</code> 的成本在这里，不在四行里。</p>
+<h2 id="_1">一、症状：配置被接受了，行为没有变</h2>
+<p><code>pkg/remoting/loadbalance.Select(loadBalanceType, sessions, xid)</code> 是 Seata-go 的负载均衡分发入口。框架支持五种策略名：<code>RandomLoadBalance</code>、<code>XidLoadBalance</code>、<code>RoundRobinLoadBalance</code>、<code>ConsistentHashLoadBalance</code>、<code>LeastActiveLoadBalance</code>。配置层全部接受，实现文件也都真实存在（<code>consistent_hash_loadbalance.go</code>、<code>least_active_loadbalance.go</code> 都不是空壳）。</p>
+<p>但 <code>Select</code> 的 <code>switch</code> 只写了前三个：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">switch</span><span class="w"> </span><span class="nx">loadBalanceType</span><span class="w"> </span><span class="p">{</span>
+<span class="k">case</span><span class="w"> </span><span class="nx">randomLoadBalance</span><span class="p">:</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">RandomLoadBalance</span><span class="p">(</span><span class="nx">sessions</span><span class="p">,</span><span class="w"> </span><span class="nx">xid</span><span class="p">)</span>
+<span class="k">case</span><span class="w"> </span><span class="nx">xidLoadBalance</span><span class="p">:</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">XidLoadBalance</span><span class="p">(</span><span class="nx">sessions</span><span class="p">,</span><span class="w"> </span><span class="nx">xid</span><span class="p">)</span>
+<span class="k">case</span><span class="w"> </span><span class="nx">roundRobinLoadBalance</span><span class="p">:</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">RoundRobinLoadBalance</span><span class="p">(</span><span class="nx">sessions</span><span class="p">,</span><span class="w"> </span><span class="nx">xid</span><span class="p">)</span>
+<span class="k">default</span><span class="p">:</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">RandomLoadBalance</span><span class="p">(</span><span class="nx">sessions</span><span class="p">,</span><span class="w"> </span><span class="nx">xid</span><span class="p">)</span><span class="w">   </span><span class="c1">// 其余全部静默降级为随机</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>所以配了 <code>ConsistentHashLoadBalance</code> 或 <code>LeastActiveLoadBalance</code> 的实例，会掉进 <code>default</code>，<strong>静默地</strong>用随机负载均衡跑。没有 warning、没有 metric、没有异常。</p>
+<p>这正是这类 bug 最贵的地方：<strong>它不制造故障，它只是让配置无声地失效。</strong> 一致性哈希的意义是"同一事务稳定落到同一台 TC"，失效之后集群还能跑，只是热点和"以为有亲和性其实没有"的问题不会有人发现。</p>
+<h2 id="_2">二、策略一旦可达，三个隐藏缺陷同时被激活</h2>
+<p>死代码是没有代价的，活代码才有。两个 <code>case</code> 补上之后，下面三件事立刻从"以后可能会有的问题"变成"现在的运行路径"。</p>
+<h3 id="1-key-tc">1. 哈希 key 是个常量：所有请求钉在同一台 TC</h3>
+<p><code>SendSync</code> / <code>SendAsync</code> 在没有现成连接时，会把<strong>整个</strong> <code>message.RpcMessage</code> 传给 <code>selectSession(msg)</code> / <code>selectChannel(msg)</code>，而 <code>getXid(msg)</code> 期望的是一份具体的消息 body。于是：</p>
+<ul>
+<li>getty 侧：<code>reflect</code> 在 <code>RpcMessage</code> 上找不到 <code>Xid</code> 字段，<code>FieldByName(...).String()</code> 对无效值返回<strong>字面量字符串</strong> <code>"&lt;invalid Value&gt;"</code>；</li>
+<li>gRPC 侧：类型断言全部落空，直接返回空字符串。</li>
+</ul>
+<p>两种情况下，一致性哈希拿到的都是一个<strong>所有请求都相同的 key</strong>——把整个集群的请求钉死在同一台 TC 上。修法在调用点和提取函数各一处：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 调用点：把 body 交出去，而不是整个信封</span>
+<span class="nx">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">sessionManager</span><span class="p">.</span><span class="nx">selectSession</span><span class="p">(</span><span class="nx">msg</span><span class="p">.</span><span class="nx">Body</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="c1">// getXid：防御性解包 + 反射每一步都加守卫</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">rpcMsg</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">msg</span><span class="p">.(</span><span class="nx">message</span><span class="p">.</span><span class="nx">RpcMessage</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">rpcMsg</span><span class="p">.</span><span class="nx">Body</span>
+<span class="p">}</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">msg</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="s">""</span>
+<span class="p">}</span>
+<span class="c1">// ... 常见的几种 body 走类型断言 ...</span>
+
+<span class="nx">msgValue</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">reflect</span><span class="p">.</span><span class="nx">ValueOf</span><span class="p">(</span><span class="nx">msg</span><span class="p">)</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">msgValue</span><span class="p">.</span><span class="nx">Kind</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">reflect</span><span class="p">.</span><span class="nx">Ptr</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">msgValue</span><span class="p">.</span><span class="nx">IsNil</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="s">""</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">msgValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">msgValue</span><span class="p">.</span><span class="nx">Elem</span><span class="p">()</span>
+<span class="p">}</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">msgValue</span><span class="p">.</span><span class="nx">Kind</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="nx">reflect</span><span class="p">.</span><span class="nx">Struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="s">""</span>
+<span class="p">}</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">field</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">msgValue</span><span class="p">.</span><span class="nx">FieldByName</span><span class="p">(</span><span class="s">"Xid"</span><span class="p">);</span><span class="w"> </span><span class="nx">field</span><span class="p">.</span><span class="nx">IsValid</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">field</span><span class="p">.</span><span class="nx">Kind</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">reflect</span><span class="p">.</span><span class="nx">String</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">field</span><span class="p">.</span><span class="nx">String</span><span class="p">()</span>
+<span class="p">}</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">field</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">msgValue</span><span class="p">.</span><span class="nx">FieldByName</span><span class="p">(</span><span class="s">"TransactionName"</span><span class="p">);</span><span class="w"> </span><span class="nx">field</span><span class="p">.</span><span class="nx">IsValid</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">field</span><span class="p">.</span><span class="nx">Kind</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">reflect</span><span class="p">.</span><span class="nx">String</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">field</span><span class="p">.</span><span class="nx">String</span><span class="p">()</span>
+<span class="p">}</span>
+<span class="k">return</span><span class="w"> </span><span class="s">""</span>
+</code></pre></div>
+
+<p>值得单独指出的是最后几行守卫：原来的实现里，<strong>"字段不存在"这条路径不会返回空字符串，而是返回那个字面量占位符</strong>。它长得像数据，实际是把所有请求合并成一个 key。空 key 的表达方式必须是空 key——否则"没有 key"会被误当成"大家共享一个 key"。</p>
+<p>顺带对齐 Java 客户端的行为：真的没有事务 key 时（心跳、无 key 请求），<code>ConsistentHashLoadBalance</code> 用 <code>uuid.NewString()</code> 打散，而不是让空 key 变成"固定节点"。</p>
+<h3 id="2-race-data-race">2. 在途计数是普通读：<code>-race</code> 直接报 DATA RACE</h3>
+<p><code>LeastActiveLoadBalance</code> 需要读每个 session 的在途请求数，这些计数由 <code>rpc.BeginCount</code> / <code>rpc.EndCount</code> 通过 <code>atomic.AddInt32</code> 写入，而读取侧是这样的：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">Status</span><span class="p">)</span><span class="w"> </span><span class="nx">GetActive</span><span class="p">()</span><span class="w"> </span><span class="kt">int32</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">Active</span><span class="w"> </span><span class="p">}</span><span class="w">  </span><span class="c1">// 与 atomic.AddInt32 并发</span>
+</code></pre></div>
+
+<p>策略不可达时，这只是一段"以后可能会出问题"的代码；补上 <code>case</code> 之后，它是一条稳定的数据竞争路径。改用 <code>atomic.LoadInt32</code>，并补一个能稳定复现的并发测试。</p>
+<h3 id="3">3. 哈希环的两个死角</h3>
+<p>一致性哈希的环由包级 <code>sync.Once</code> 构建后缓存。有两个 corner case：</p>
+<ul>
+<li><strong>首次选择早于任何 session 注册</strong>：环用空快照建成，之后永远为空，每次选择都退化成随机，而且<strong>不会自愈</strong>；</li>
+<li><strong>key 的哈希值越过最后一个虚拟节点</strong>：原实现 fallback 到随机。也就是说同一个 xid 每次可能落到不同节点——一致性哈希最主要的承诺（同一 key 稳定映射）直接失效。</li>
+</ul>
+<p>修法：环为空就从当前快照重建；越界则环绕到 <code>sortedHashNodes[0]</code>。环本来就是圆的，第一个节点就是最后一个节点的后继。</p>
+<h2 id="_3">三、测试怎么写，才真的锁住行为</h2>
+<p>"派发类"缺陷最容易写出<strong>看起来覆盖了、实际什么都锁不住</strong>的测试。这个 PR 里用了四条手法：</p>
+<p><strong>（1）用可观测副作用区分"真派发"和"随机兜底"。</strong> LeastActive 的测试给 8 个 session 各设置不同的在途数，正确答案唯一；ConsistentHash 的测试则断言包级缓存里的哈希环被填充——随机兜底永远不会去建环。</p>
+<p><strong>（2）比身份，不比结构。</strong> gomock 造出来的 session 结构完全一致，<code>assert.Equal</code> 会欣然接受任何一个，测试等于没写。所以断言写成 <code>got == all[0]</code>；需要在下一行解引用的地方用 <code>require</code> 而不是 <code>assert</code>，否则断言失败会变成 panic。</p>
+<p><strong>（3）并发缺陷必须用 <code>-race</code> 复现</strong>，不能靠读代码。一个 goroutine 循环选择，多个 goroutine 反复 <code>BeginCount/EndCount</code>，修复前稳定报 DATA RACE。</p>
+<p><strong>（4）表驱动守住分发表本身。</strong> 枚举包内声明的五个策略常量，逐个断言"能选到 session、且选到的是自己的候选"，这条测试防的是漂移：以后再加策略却忘了写 <code>case</code>，它会红。</p>
+<p><strong>（5）验收标准是"把修复删掉，测试必须失败"。</strong> 环绕、空环、空 key、派发四类逐条回退验证：并发那条报 DATA RACE，其余在断言上失败。做不到这一点的测试，只是在描述现状。</p>
+<h2 id="review">四、两个 review 来回</h2>
+<p>reviewer 在这一轮指出的是两条"你的 <code>case</code> 让老问题进入了生产路径"的问题——就是上面第 1、2 条。我在同一轮修完并补了回归。第三条（<strong>快照成员变化时重建环</strong>，而不是只在连接关闭时重建）他判断为非阻塞：要做对得先做成员比较，我另开 issue 作为后续，并把 <code>Fixes #1073</code> 写进描述。</p>
+<p>还有一个值得记的插曲：同一个 issue 下有另一个 PR 也在做同一件事，维护者需要在两者之间选一个。决定性的差异不在功能，而在<strong>测试强度</strong>——把新增的两个 <code>case</code> 删掉之后，对方的分发测试仍然全绿（说明它没有锁住派发行为），而这个 PR 的测试会失败。</p>
+<p>所以"删掉修复后测试必须失败"不只是自我要求，它也是评审时最有说服力的一份证据。</p>
+<h2 id="_4">五、几条可复用的判断</h2>
+<ol>
+<li><strong>配置项被接受，不等于被实现。</strong> 分发表、注册表、插件表都应该有一条"声明的名字全部可达"的测试。</li>
+<li><strong><code>default:</code> 里的静默兜底是最贵的 bug。</strong> 它把"不支持"伪装成"支持"。至少应该 warn，或者干脆 fail fast——让配置错误在启动时就尖叫。</li>
+<li><strong>补齐一个分发点，等于点亮一整条沉睡的代码路径。</strong> 紧接着要做的是审它的并发、边界和退化分支。那不是"顺带发现的问题"，是这个 PR 的责任范围。</li>
+<li><strong>测试要锁行为，不是锁不崩。</strong> 判断标准很简单：把修复删掉，它会不会红。</li>
+</ol>
+<p>PR：<a href="https://github.com/apache/incubator-seata-go/pull/1205">apache/incubator-seata-go#1205</a>，issue：<a href="https://github.com/apache/incubator-seata-go/issues/1073">#1073</a>。</p>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#_1">一、症状：配置被接受了，行为没有变</a></li><li><a href="#_2">二、策略一旦可达，三个隐藏缺陷同时被激活</a><ul><li><a href="#1-key-tc">1. 哈希 key 是个常量：所有请求钉在同一台 TC</a></li><li><a href="#2-race-data-race">2. 在途计数是普通读：-race 直接报 DATA RACE</a></li><li><a href="#3">3. 哈希环的两个死角</a></li></ul></li><li><a href="#_3">三、测试怎么写，才真的锁住行为</a></li><li><a href="#review">四、两个 review 来回</a></li><li><a href="#_4">五、几条可复用的判断</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/go/">#Go</a><a class="tag" href="/tags/distributed-transaction/">#分布式事务</a><a class="tag" href="/tags/seata/">#Seata</a><a class="tag" href="/tags/负载均衡/">#负载均衡</a>    </div>
+
+    <div class="post-nav">
+      <a href="/posts/work-continuity-eval-harness/">
+        <span class="dir">← 上一篇 · 2026-10-02</span>
+        <span class="ttl">给 Agent 的&#34;工作交接&#34;写个评测：一个 benchmark 的设计与 review 揪出的六个洞</span>
+      </a>
+      <a href="/posts/prepared-context-envelope-boundary/" style="text-align:right">
+        <span class="dir">下一篇 · 2026-10-02 →</span>
+        <span class="ttl">一行 END 标记能由记忆自己写出来：一次 Unicode 行边界引发的信任边界逃逸</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 9 篇文章 · 构建于 2026-10-02 13:18</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

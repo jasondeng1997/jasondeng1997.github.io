@@ -12,6 +12,30 @@
     "summary": "OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和\"压缩式摘要\"放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。"
   },
   {
+    "title": "配了负载均衡策略却没生效：从四行 case 挖出三处沉睡的 bug",
+    "url": "/posts/seata-go-loadbalance-dispatch/",
+    "date": "2026-10-02",
+    "tags": [
+      "Go",
+      "分布式事务",
+      "Seata",
+      "负载均衡"
+    ],
+    "summary": "load-balance.type 配成 ConsistentHashLoadBalance 或 LeastActiveLoadBalance，行为却和随机一样，没有报错也没有日志。补上分发表里缺的两个 case 只是开始——策略一旦真的可达，三个一直睡着的缺陷会被同时激活。"
+  },
+  {
+    "title": "一行 END 标记能由记忆自己写出来：一次 Unicode 行边界引发的信任边界逃逸",
+    "url": "/posts/prepared-context-envelope-boundary/",
+    "date": "2026-10-02",
+    "tags": [
+      "Agent",
+      "安全",
+      "Unicode",
+      "后端"
+    ],
+    "summary": "Agent 把不可信历史用 BEGIN/END 标记包起来，下游按\"第一行裸 END\"判断边界在哪结束。一条记忆就能用自己的内容伪造出这一行——因为 JSON 序列化不转义 U+2028，而 splitlines 认它。第一版修法被 reviewer 打回两次之后，我换了个坐标系。"
+  },
+  {
     "title": "Go 服务里的并发控制：从 context 到 errgroup 的工程实践",
     "url": "/posts/go-concurrency-context-errgroup/",
     "date": "2026-09-18",
