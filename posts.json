@@ -1,5 +1,17 @@
 [
   {
+    "title": "给 Agent 的\"工作交接\"写个评测：一个 benchmark 的设计与 review 揪出的六个洞",
+    "url": "/posts/work-continuity-eval-harness/",
+    "date": "2026-10-02",
+    "tags": [
+      "Agent",
+      "评测",
+      "工程实践",
+      "后端"
+    ],
+    "summary": "OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和\"压缩式摘要\"放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。"
+  },
+  {
     "title": "Go 服务里的并发控制：从 context 到 errgroup 的工程实践",
     "url": "/posts/go-concurrency-context-errgroup/",
     "date": "2026-09-18",
