@@ -9,7 +9,7 @@
       "工程实践",
       "后端"
     ],
-    "summary": "OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和\"压缩式摘要\"放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。"
+    "summary": "OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和\"压缩式摘要\"放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。收尾时 CI 又红了一次，取证下来发现被判红的也不是这段代码——同一个病的流程层版本。"
   },
   {
     "title": "配了负载均衡策略却没生效：从四行 case 挖出三处沉睡的 bug",

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>给 Agent 的&#34;工作交接&#34;写个评测：一个 benchmark 的设计与 review 揪出的六个洞 — JasonDeng 的技术随笔</title>
-<meta name="description" content="OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。">
+<meta name="description" content="OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。收尾时 CI 又红了一次，取证下来发现被判红的也不是这段代码——同一个病的流程层版本。">
 <meta name="author" content="JasonDeng">
 <meta name="keywords" content="Agent,评测,工程实践,后端">
 <meta name="theme-color" content="#ffffff">
@@ -18,7 +18,7 @@
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="JasonDeng 的技术随笔">
 <meta property="og:title" content="给 Agent 的&#34;工作交接&#34;写个评测：一个 benchmark 的设计与 review 揪出的六个洞">
-<meta property="og:description" content="OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。">
+<meta property="og:description" content="OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。收尾时 CI 又红了一次，取证下来发现被判红的也不是这段代码——同一个病的流程层版本。">
 <meta property="og:url" content="https://jasondeng1997.github.io/posts/work-continuity-eval-harness/">
 <meta property="og:locale" content="zh_CN">
 <meta name="twitter:card" content="summary_large_image">
@@ -27,7 +27,7 @@
   "@context": "https://schema.org",
   "@type": "BlogPosting",
   "headline": "\u7ed9 Agent \u7684\"\u5de5\u4f5c\u4ea4\u63a5\"\u5199\u4e2a\u8bc4\u6d4b\uff1a\u4e00\u4e2a benchmark \u7684\u8bbe\u8ba1\u4e0e review \u63ea\u51fa\u7684\u516d\u4e2a\u6d1e",
-  "description": "OceanBase PowerContext \u7684\u4e00\u4e2a issue \u8981\u6c42\u628a Rollover Handoff \u548c\"\u538b\u7f29\u5f0f\u6458\u8981\"\u653e\u5230\u540c\u4e00\u628a\u5c3a\u5b50\u4e0b\u6bd4\u4e00\u6bd4\u3002harness \u5199\u5b8c\u88ab reviewer \u63ea\u51fa\u516d\u4e2a\u6d1e\uff0c\u56de\u5934\u770b\u6bcf\u4e2a\u6d1e\u80cc\u540e\u662f\u540c\u4e00\u4e2a\u75c5\uff1a\u62ff\u4e00\u4e2a\u5bf9\u8c61\u505a\u5224\u65ad\uff0c\u4f46\u90a3\u4e2a\u5bf9\u8c61\u4e0d\u662f\u4f60\u8981\u6d4b\u7684\u4e1c\u897f\u3002",
+  "description": "OceanBase PowerContext \u7684\u4e00\u4e2a issue \u8981\u6c42\u628a Rollover Handoff \u548c\"\u538b\u7f29\u5f0f\u6458\u8981\"\u653e\u5230\u540c\u4e00\u628a\u5c3a\u5b50\u4e0b\u6bd4\u4e00\u6bd4\u3002harness \u5199\u5b8c\u88ab reviewer \u63ea\u51fa\u516d\u4e2a\u6d1e\uff0c\u56de\u5934\u770b\u6bcf\u4e2a\u6d1e\u80cc\u540e\u662f\u540c\u4e00\u4e2a\u75c5\uff1a\u62ff\u4e00\u4e2a\u5bf9\u8c61\u505a\u5224\u65ad\uff0c\u4f46\u90a3\u4e2a\u5bf9\u8c61\u4e0d\u662f\u4f60\u8981\u6d4b\u7684\u4e1c\u897f\u3002\u6536\u5c3e\u65f6 CI \u53c8\u7ea2\u4e86\u4e00\u6b21\uff0c\u53d6\u8bc1\u4e0b\u6765\u53d1\u73b0\u88ab\u5224\u7ea2\u7684\u4e5f\u4e0d\u662f\u8fd9\u6bb5\u4ee3\u7801\u2014\u2014\u540c\u4e00\u4e2a\u75c5\u7684\u6d41\u7a0b\u5c42\u7248\u672c\u3002",
   "datePublished": "2026-10-02",
   "dateModified": "2026-10-02",
   "url": "https://jasondeng1997.github.io/posts/work-continuity-eval-harness/",
@@ -81,11 +81,11 @@
         <span>2026-10-02</span>
       </nav>
       <h1>给 Agent 的&#34;工作交接&#34;写个评测：一个 benchmark 的设计与 review 揪出的六个洞</h1>
-<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。</p>      <div class="article-head__meta">
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。收尾时 CI 又红了一次，取证下来发现被判红的也不是这段代码——同一个病的流程层版本。</p>      <div class="article-head__meta">
         <span>2026-10-02</span>
         <span class="dot"></span>
-        <span>5 分钟阅读</span>
-<span class="dot"></span><span>约 2073 字</span>      </div>
+        <span>8 分钟阅读</span>
+<span class="dot"></span><span>约 3015 字</span>      </div>
       <div class="article-head__tags">
 <a class="tag" href="/tags/agent/">#Agent</a><a class="tag" href="/tags/评测/">#评测</a><a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/backend/">#后端</a>      </div>
     </div>
@@ -174,6 +174,46 @@ recorded attempts ────────────► 逐条评分 ──►
 <h2 id="pr">五、边界要写在产物里，不是写在 PR 描述里</h2>
 <p>最后说边界。这个 harness 跑出来的所有数字都来自 authored fixture——它们证明的是"harness 能测"，而不是任何真实环境的表现。这些边界没有只写在 PR 描述里，而是写进了报告输出的第一行横幅、README 和文档的 Boundaries 段：<strong>reviewer 会读代码里的字符串</strong>，声称什么就该在产物里体现什么。</p>
 <p>要走向真实的 benchmark，还差两步：接真实 host 的录制（这是唯一携带"host 实际做了什么"的输入），以及把六个任务的声明式任务集扩到更大的规模。harness 本身已经为此留好了位置——这大概就是"先造尺子，再谈量"的顺序问题。</p>
+<h2 id="ci">六、附记：CI 红了，但被判红的不是我的代码</h2>
+<p>正文讲的是 harness 测错对象。收尾时撞上一个同构的问题，只是发生在<strong>流程层</strong>：CI 判红，被归因的对象也不是我改的东西。</p>
+<p>现象是 <code>tests</code> job 红，而且<strong>红的姿势一直在动</strong>：红的 leg 在 3.12 / 3.13 / 3.14 之间轮转，红的 step 在 <code>Run unit tests</code> 和 <code>Run end-to-end tests</code> 之间交替。最干净的一个反例是：一个<strong>纯依赖 bump</strong> 的提交在 e2e 上红，而单测是通过的——版本号变动不可能让端到端行为变红。</p>
+<p>原因是 <code>pull_request</code> 事件默认 checkout <code>refs/pull/N/merge</code>，<strong>被测的树 = master + 你的提交</strong>。所以 master 上的红会算到你头上，而且你不能说"我没改那里"。这和正文是同一个病：判定用的对象（merge 树）不等于你想评价的对象（你的 diff）。</p>
+<p>取证分三层，从便宜到贵：</p>
+<p><strong>1. 先量 diff 边界。</strong> <code>git diff master...HEAD -- tests/ src/</code> 是空的，24 个文件全在 <code>evaluation/</code>。再加一条更硬的：<code>evaluation/</code> 是独立 uv 工程，而根 <code>pyproject.toml</code> 的 <code>[tool.ty.src] exclude</code> <strong>显式列着它</strong>、<code>[tool.uv.sources]</code> 只引 <code>integrations/*</code>、也没有 <code>[tool.uv.workspace]</code>——<strong>那个 job 在物理上收集不到我的代码</strong>。这比"别的分支也红"更硬，因为它不需要任何别人的数据。</p>
+<p><strong>2. 找反例提交。</strong> 同一个 step 在 master 上、在一个纯依赖 bump 的提交上也红。这比"我本地是绿的"有力得多。</p>
+<p><strong>3. 才轮到日志。</strong> <code>/actions/jobs/{id}/logs</code> 匿名是 403，step 注解只有 <code>Process completed with exit code 2.</code>——而这一步跑的是 <code>make</code>，GNU make 对任何失败的 recipe 都返回 2，所以<strong>这个注解等于没有信息</strong>。我一开始拿它论证"不是断言失败"，论据是错的（结论碰巧对），弯路记在这里。</p>
+<p>拿到日志之后，最有价值的读法不是断言那一行：</p>
+<table>
+<thead>
+<tr>
+<th>别这么读</th>
+<th>这么读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>盯着 <code>TimeoutError</code> 找原因</td>
+<td>它出自"等某个对象出现"的 helper，意思是那件事<strong>根本没发生</strong>；因在它上面的 <code>Captured log</code> 里</td>
+</tr>
+<tr>
+<td>把 <code>WARNING … write failed</code> 当成"机器慢"</td>
+<td>该分支是 <code>except Exception</code>，而它<strong>不捕获 <code>CancelledError</code></strong>（那是 <code>BaseException</code>）→ 抛的是真异常；且代码只对某类错重试（SQLite 5/6），没重试就说明不是竞争，也不是慢（30s 重试预算 &gt; 测试的 5s 等待）</td>
+</tr>
+<tr>
+<td>看到日志里有异常就当根因</td>
+<td><code>finally: raise</code> 会<strong>顶掉</strong>原始异常。日志里那条 <code>ValueError: Connection closed</code> 是 teardown 抛的，真因只剩在 <code>__context__</code> 里，而捕获处又不打 <code>exc_info</code> → 现场不可诊断。这本身就是该单独上报的可观测性缺陷</td>
+</tr>
+<tr>
+<td>凭印象说"应该就是这里"</td>
+<td>拿日志里的 <code>pool/base.py:373 → :986 → :1441</code> 去对<strong>本地同版本</strong>的库源码（2.0.51），把"可能是"变成"就是这条路径"。这一步极便宜，而且常常决定性</td>
+</tr>
+</tbody>
+</table>
+<p>复现也有讲究。日志里 <code>/opt/hostedtoolcache/Python/3.12.14</code> 说明 CI 用的是 <strong>3.12.14</strong>，本地就得建同小版本的 venv，不能用"3.12 就行"糊过去。然后报<strong>次数</strong>，而不是"试了几次没复现"：单跑 1 次 + 串行 40 次 + 进程内插桩重放 16 次，<strong>0 失败</strong>。这才叫"它是罕见的交织"，而不是"我这边跑不出来"。</p>
+<blockquote>
+<p>经验法则：偶发红 check 的处置是<strong>请维护者点 Re-run failed jobs</strong>（没有写权限就发不了重跑），并且<strong>不要</strong>把修复塞进本 PR——它不在你的 diff 边界内，而且被违反的那个不变量，恰恰是另一个 PR 自己的测试在断言的。归因错了就动手改代码，是把"测错对象"这个病又犯一遍。</p>
+</blockquote>
+<p>结论最好分三档写清楚，别用"疑似"糊过去：<strong>已确定</strong>（失败用例名、失败的断言、库路径行号、与本 diff 无关的证据）、<strong>强推断</strong>（因果链，标注为推断）、<strong>未证实</strong>（具体哪个交织，标注待确认，并给出"一次就能证实"的最小插桩——比如只打对象 <code>id()</code>）。维护者能直接接着往下走，比一句"我无法复现"有用得多。</p>
 <blockquote>
 <p>PR：https://github.com/oceanbase/powercontext/pull/1819
 Issue：https://github.com/oceanbase/powercontext/issues/1791</p>
@@ -182,7 +222,7 @@ Issue：https://github.com/oceanbase/powercontext/issues/1791</p>
 
     <aside class="toc" aria-label="目录">
       <div class="toc__title">本页目录</div>
-      <ul><li><a href="#issue">一、先把 issue 读对：要的是&quot;能测&quot;，不是&quot;测出如何&quot;</a></li><li><a href="#harness">二、harness 的骨架：让没有模型的东西也能对比</a></li><li><a href="#review">三、review 揪出的六个洞</a></li><li><a href="#_1">四、六个洞背后是同一个病</a></li><li><a href="#pr">五、边界要写在产物里，不是写在 PR 描述里</a></li></ul>
+      <ul><li><a href="#issue">一、先把 issue 读对：要的是&quot;能测&quot;，不是&quot;测出如何&quot;</a></li><li><a href="#harness">二、harness 的骨架：让没有模型的东西也能对比</a></li><li><a href="#review">三、review 揪出的六个洞</a></li><li><a href="#_1">四、六个洞背后是同一个病</a></li><li><a href="#pr">五、边界要写在产物里，不是写在 PR 描述里</a></li><li><a href="#ci">六、附记：CI 红了，但被判红的不是我的代码</a></li></ul>
       <div class="toc__title" style="margin-top:22px">快捷键</div>
       <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
         <code>/</code> 搜索文章<br>
@@ -236,7 +276,7 @@ Issue：https://github.com/oceanbase/powercontext/issues/1791</p>
     </div>
     <div class="site-footer__bottom">
       <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
-      <span>共 9 篇文章 · 构建于 2026-10-02 13:18</span>
+      <span>共 9 篇文章 · 构建于 2026-10-03 05:46</span>
     </div>
   </div>
 </footer>

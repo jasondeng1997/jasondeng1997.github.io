@@ -6,14 +6,14 @@
     <description>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</description>
     <language>zh-CN</language>
     <copyright>JasonDeng</copyright>
-    <lastBuildDate>Fri, 02 Oct 2026 09:00:00 +0800</lastBuildDate>
+    <lastBuildDate>Sat, 03 Oct 2026 09:00:00 +0800</lastBuildDate>
     <atom:link href="https://jasondeng1997.github.io/feed.xml" rel="self" type="application/rss+xml"/>
     <item>
       <title>给 Agent 的&#34;工作交接&#34;写个评测：一个 benchmark 的设计与 review 揪出的六个洞</title>
       <link>https://jasondeng1997.github.io/posts/work-continuity-eval-harness/</link>
       <guid isPermaLink="true">https://jasondeng1997.github.io/posts/work-continuity-eval-harness/</guid>
       <pubDate>Fri, 02 Oct 2026 09:00:00 +0800</pubDate>
-      <description>OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。</description>
+      <description>OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。收尾时 CI 又红了一次，取证下来发现被判红的也不是这段代码——同一个病的流程层版本。</description>
       <content:encoded><![CDATA[<p>最近在 OceanBase 的 PowerContext 项目里做了一次完整的开源贡献：接了一个 issue，给 Agent 的"工作交接"（Rollover Handoff）写一个评测 harness，和"压缩式摘要"类方法做对比。功能写完只是一个开始——reviewer 用六条带复现例子的 inline comment 告诉我：这个 harness 在六个地方<strong>测的不是它声称要测的东西</strong>。</p>
 <p>这篇文章把设计和这六个洞都整理出来。设计部分讲"怎么让一个没有模型、没有流量的项目也能跑对比实验"，review 部分讲"评测类代码最常见的病"。PR 在 <a href="https://github.com/oceanbase/powercontext/pull/1819">oceanbase/powercontext#1819</a>，issue 是 <a href="https://github.com/oceanbase/powercontext/issues/1791">#1791</a>。</p>
 <h2 id="issue">一、先把 issue 读对：要的是"能测"，不是"测出如何"</h2>
@@ -93,6 +93,46 @@ recorded attempts ────────────► 逐条评分 ──►
 <h2 id="pr">五、边界要写在产物里，不是写在 PR 描述里</h2>
 <p>最后说边界。这个 harness 跑出来的所有数字都来自 authored fixture——它们证明的是"harness 能测"，而不是任何真实环境的表现。这些边界没有只写在 PR 描述里，而是写进了报告输出的第一行横幅、README 和文档的 Boundaries 段：<strong>reviewer 会读代码里的字符串</strong>，声称什么就该在产物里体现什么。</p>
 <p>要走向真实的 benchmark，还差两步：接真实 host 的录制（这是唯一携带"host 实际做了什么"的输入），以及把六个任务的声明式任务集扩到更大的规模。harness 本身已经为此留好了位置——这大概就是"先造尺子，再谈量"的顺序问题。</p>
+<h2 id="ci">六、附记：CI 红了，但被判红的不是我的代码</h2>
+<p>正文讲的是 harness 测错对象。收尾时撞上一个同构的问题，只是发生在<strong>流程层</strong>：CI 判红，被归因的对象也不是我改的东西。</p>
+<p>现象是 <code>tests</code> job 红，而且<strong>红的姿势一直在动</strong>：红的 leg 在 3.12 / 3.13 / 3.14 之间轮转，红的 step 在 <code>Run unit tests</code> 和 <code>Run end-to-end tests</code> 之间交替。最干净的一个反例是：一个<strong>纯依赖 bump</strong> 的提交在 e2e 上红，而单测是通过的——版本号变动不可能让端到端行为变红。</p>
+<p>原因是 <code>pull_request</code> 事件默认 checkout <code>refs/pull/N/merge</code>，<strong>被测的树 = master + 你的提交</strong>。所以 master 上的红会算到你头上，而且你不能说"我没改那里"。这和正文是同一个病：判定用的对象（merge 树）不等于你想评价的对象（你的 diff）。</p>
+<p>取证分三层，从便宜到贵：</p>
+<p><strong>1. 先量 diff 边界。</strong> <code>git diff master...HEAD -- tests/ src/</code> 是空的，24 个文件全在 <code>evaluation/</code>。再加一条更硬的：<code>evaluation/</code> 是独立 uv 工程，而根 <code>pyproject.toml</code> 的 <code>[tool.ty.src] exclude</code> <strong>显式列着它</strong>、<code>[tool.uv.sources]</code> 只引 <code>integrations/*</code>、也没有 <code>[tool.uv.workspace]</code>——<strong>那个 job 在物理上收集不到我的代码</strong>。这比"别的分支也红"更硬，因为它不需要任何别人的数据。</p>
+<p><strong>2. 找反例提交。</strong> 同一个 step 在 master 上、在一个纯依赖 bump 的提交上也红。这比"我本地是绿的"有力得多。</p>
+<p><strong>3. 才轮到日志。</strong> <code>/actions/jobs/{id}/logs</code> 匿名是 403，step 注解只有 <code>Process completed with exit code 2.</code>——而这一步跑的是 <code>make</code>，GNU make 对任何失败的 recipe 都返回 2，所以<strong>这个注解等于没有信息</strong>。我一开始拿它论证"不是断言失败"，论据是错的（结论碰巧对），弯路记在这里。</p>
+<p>拿到日志之后，最有价值的读法不是断言那一行：</p>
+<table>
+<thead>
+<tr>
+<th>别这么读</th>
+<th>这么读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>盯着 <code>TimeoutError</code> 找原因</td>
+<td>它出自"等某个对象出现"的 helper，意思是那件事<strong>根本没发生</strong>；因在它上面的 <code>Captured log</code> 里</td>
+</tr>
+<tr>
+<td>把 <code>WARNING … write failed</code> 当成"机器慢"</td>
+<td>该分支是 <code>except Exception</code>，而它<strong>不捕获 <code>CancelledError</code></strong>（那是 <code>BaseException</code>）→ 抛的是真异常；且代码只对某类错重试（SQLite 5/6），没重试就说明不是竞争，也不是慢（30s 重试预算 &gt; 测试的 5s 等待）</td>
+</tr>
+<tr>
+<td>看到日志里有异常就当根因</td>
+<td><code>finally: raise</code> 会<strong>顶掉</strong>原始异常。日志里那条 <code>ValueError: Connection closed</code> 是 teardown 抛的，真因只剩在 <code>__context__</code> 里，而捕获处又不打 <code>exc_info</code> → 现场不可诊断。这本身就是该单独上报的可观测性缺陷</td>
+</tr>
+<tr>
+<td>凭印象说"应该就是这里"</td>
+<td>拿日志里的 <code>pool/base.py:373 → :986 → :1441</code> 去对<strong>本地同版本</strong>的库源码（2.0.51），把"可能是"变成"就是这条路径"。这一步极便宜，而且常常决定性</td>
+</tr>
+</tbody>
+</table>
+<p>复现也有讲究。日志里 <code>/opt/hostedtoolcache/Python/3.12.14</code> 说明 CI 用的是 <strong>3.12.14</strong>，本地就得建同小版本的 venv，不能用"3.12 就行"糊过去。然后报<strong>次数</strong>，而不是"试了几次没复现"：单跑 1 次 + 串行 40 次 + 进程内插桩重放 16 次，<strong>0 失败</strong>。这才叫"它是罕见的交织"，而不是"我这边跑不出来"。</p>
+<blockquote>
+<p>经验法则：偶发红 check 的处置是<strong>请维护者点 Re-run failed jobs</strong>（没有写权限就发不了重跑），并且<strong>不要</strong>把修复塞进本 PR——它不在你的 diff 边界内，而且被违反的那个不变量，恰恰是另一个 PR 自己的测试在断言的。归因错了就动手改代码，是把"测错对象"这个病又犯一遍。</p>
+</blockquote>
+<p>结论最好分三档写清楚，别用"疑似"糊过去：<strong>已确定</strong>（失败用例名、失败的断言、库路径行号、与本 diff 无关的证据）、<strong>强推断</strong>（因果链，标注为推断）、<strong>未证实</strong>（具体哪个交织，标注待确认，并给出"一次就能证实"的最小插桩——比如只打对象 <code>id()</code>）。维护者能直接接着往下走，比一句"我无法复现"有用得多。</p>
 <blockquote>
 <p>PR：https://github.com/oceanbase/powercontext/pull/1819
 Issue：https://github.com/oceanbase/powercontext/issues/1791</p>
