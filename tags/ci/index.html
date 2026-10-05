@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>#Agent 标签下的文章 — JasonDeng 的技术随笔</title>
-<meta name="description" content="JasonDeng 的技术随笔 中标签为「Agent」的全部文章，共 3 篇。">
+<title>#CI 标签下的文章 — JasonDeng 的技术随笔</title>
+<meta name="description" content="JasonDeng 的技术随笔 中标签为「CI」的全部文章，共 1 篇。">
 <meta name="author" content="JasonDeng">
 <meta name="keywords" content="JasonDeng,技术博客,后端,Go,Java,分布式,中间件,微服务,RocketMQ,Apache Dubbo,Dubbo Committer">
 <meta name="theme-color" content="#ffffff">
 <meta name="generator" content="custom-static-generator">
-<link rel="canonical" href="https://jasondeng1997.github.io/tags/agent/">
+<link rel="canonical" href="https://jasondeng1997.github.io/tags/ci/">
 
 <link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
 <link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
@@ -19,7 +19,7 @@
 <meta property="og:site_name" content="JasonDeng 的技术随笔">
 <meta property="og:title" content="JasonDeng 的技术随笔">
 <meta property="og:description" content="JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。">
-<meta property="og:url" content="https://jasondeng1997.github.io/tags/agent/">
+<meta property="og:url" content="https://jasondeng1997.github.io/tags/ci/">
 <meta property="og:locale" content="zh_CN">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">
@@ -68,10 +68,10 @@
 <section class="page-head">
   <div class="wrap">
     <nav class="breadcrumb" aria-label="面包屑" style="margin-bottom:14px">
-      <a href="/">首页</a><span>/</span><a href="/tags/">标签</a><span>/</span><span>#Agent</span>
+      <a href="/">首页</a><span>/</span><a href="/tags/">标签</a><span>/</span><span>#CI</span>
     </nav>
-    <h1>#Agent</h1>
-    <p>共 3 篇相关文章。</p>
+    <h1>#CI</h1>
+    <p>共 1 篇相关文章。</p>
   </div>
 </section>
 
@@ -88,26 +88,6 @@
 <p>接着上一篇：reviewer 的 Blocking 只有一句——这 209 个新用例没有任何 CI job 跑。门禁接上之后它自己红了三次，前两次的归因都是错的：第一次怪错了锁文件，第二次把&#34;宽度&#34;当成了原因，真正的原因是 Typer 在 GITHUB_ACTIONS 下强制开色。记下这台&#34;测量仪器&#34;本身需要先修的过程，以及最后怎么在日志被挡住的情况下把绿灯验实。</p>  <div class="post-card__tags">
 <span class="tag">#Agent</span><span class="tag">#评测</span><span class="tag">#CI</span><span class="tag">#工程实践</span>  </div>
 </a>
-<a class="post-card" href="/posts/work-continuity-eval-harness/">
-  <div class="post-card__meta">
-    <span>2026-10-02</span>
-    <span class="dot"></span>
-    <span>8 分钟阅读</span>
-<span class="dot"></span><span>3015 字</span>  </div>
-  <h3>给 Agent 的&#34;工作交接&#34;写个评测：一个 benchmark 的设计与 review 揪出的六个洞</h3>
-<p>OceanBase PowerContext 的一个 issue 要求把 Rollover Handoff 和&#34;压缩式摘要&#34;放到同一把尺子下比一比。harness 写完被 reviewer 揪出六个洞，回头看每个洞背后是同一个病：拿一个对象做判断，但那个对象不是你要测的东西。收尾时 CI 又红了一次，取证下来发现被判红的也不是这段代码——同一个病的流程层版本。</p>  <div class="post-card__tags">
-<span class="tag">#Agent</span><span class="tag">#评测</span><span class="tag">#工程实践</span><span class="tag">#后端</span>  </div>
-</a>
-<a class="post-card" href="/posts/prepared-context-envelope-boundary/">
-  <div class="post-card__meta">
-    <span>2026-10-02</span>
-    <span class="dot"></span>
-    <span>5 分钟阅读</span>
-<span class="dot"></span><span>1858 字</span>  </div>
-  <h3>一行 END 标记能由记忆自己写出来：一次 Unicode 行边界引发的信任边界逃逸</h3>
-<p>Agent 把不可信历史用 BEGIN/END 标记包起来，下游按&#34;第一行裸 END&#34;判断边界在哪结束。一条记忆就能用自己的内容伪造出这一行——因为 JSON 序列化不转义 U+2028，而 splitlines 认它。第一版修法被 reviewer 打回两次之后，我换了个坐标系。</p>  <div class="post-card__tags">
-<span class="tag">#Agent</span><span class="tag">#安全</span><span class="tag">#Unicode</span><span class="tag">#后端</span>  </div>
-</a>
 </div>
 
   </div>
@@ -122,13 +102,13 @@
     <div class="tag-cloud">
     <a class="tag" href="/tags/backend/">#后端<span class="count">5</span></a>
     <a class="tag" href="/tags/engineering/">#工程实践<span class="count">4</span></a>
+    <a class="tag" href="/tags/agent/">#Agent<span class="count">3</span></a>
     <a class="tag" href="/tags/go/">#Go<span class="count">3</span></a>
     <a class="tag" href="/tags/mysql/">#MySQL<span class="count">2</span></a>
     <a class="tag" href="/tags/seata/">#Seata<span class="count">2</span></a>
     <a class="tag" href="/tags/distributed-transaction/">#分布式事务<span class="count">2</span></a>
     <a class="tag" href="/tags/microservices/">#微服务<span class="count">2</span></a>
     <a class="tag" href="/tags/评测/">#评测<span class="count">2</span></a>
-    <a class="tag" href="/tags/ci/">#CI<span class="count">1</span></a>
     <a class="tag" href="/tags/rpc/">#RPC<span class="count">1</span></a>
     <a class="tag" href="/tags/rocketmq/">#RocketMQ<span class="count">1</span></a>
     <a class="tag" href="/tags/unicode/">#Unicode<span class="count">1</span></a>

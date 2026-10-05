@@ -1,5 +1,17 @@
 [
   {
+    "title": "给评测接上 CI 门禁：一条 209 个用例的检查，和一次改错两遍的归因",
+    "url": "/posts/evaluation-ci-gate-and-three-guesses/",
+    "date": "2026-10-05",
+    "tags": [
+      "Agent",
+      "评测",
+      "CI",
+      "工程实践"
+    ],
+    "summary": "接着上一篇：reviewer 的 Blocking 只有一句——这 209 个新用例没有任何 CI job 跑。门禁接上之后它自己红了三次，前两次的归因都是错的：第一次怪错了锁文件，第二次把\"宽度\"当成了原因，真正的原因是 Typer 在 GITHUB_ACTIONS 下强制开色。记下这台\"测量仪器\"本身需要先修的过程，以及最后怎么在日志被挡住的情况下把绿灯验实。"
+  },
+  {
     "title": "给 Agent 的\"工作交接\"写个评测：一个 benchmark 的设计与 review 揪出的六个洞",
     "url": "/posts/work-continuity-eval-harness/",
     "date": "2026-10-02",

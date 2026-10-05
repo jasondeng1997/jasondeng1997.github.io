@@ -21,6 +21,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/posts/evaluation-ci-gate-and-three-guesses/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/posts/work-continuity-eval-harness/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -71,17 +76,17 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/go/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://jasondeng1997.github.io/tags/engineering/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/agent/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/go/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -102,6 +107,16 @@
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/microservices/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/评测/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/ci/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -167,11 +182,6 @@
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/architecture/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://jasondeng1997.github.io/tags/评测/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

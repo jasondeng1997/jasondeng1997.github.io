@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>#评测 标签下的文章 — JasonDeng 的技术随笔</title>
-<meta name="description" content="JasonDeng 的技术随笔 中标签为「评测」的全部文章，共 1 篇。">
+<meta name="description" content="JasonDeng 的技术随笔 中标签为「评测」的全部文章，共 2 篇。">
 <meta name="author" content="JasonDeng">
 <meta name="keywords" content="JasonDeng,技术博客,后端,Go,Java,分布式,中间件,微服务,RocketMQ,Apache Dubbo,Dubbo Committer">
 <meta name="theme-color" content="#ffffff">
@@ -71,13 +71,23 @@
       <a href="/">首页</a><span>/</span><a href="/tags/">标签</a><span>/</span><span>#评测</span>
     </nav>
     <h1>#评测</h1>
-    <p>共 1 篇相关文章。</p>
+    <p>共 2 篇相关文章。</p>
   </div>
 </section>
 
 <section class="section">
   <div class="wrap">
     <div class="post-list">
+<a class="post-card" href="/posts/evaluation-ci-gate-and-three-guesses/">
+  <div class="post-card__meta">
+    <span>2026-10-05</span>
+    <span class="dot"></span>
+    <span>6 分钟阅读</span>
+<span class="dot"></span><span>2266 字</span>  </div>
+  <h3>给评测接上 CI 门禁：一条 209 个用例的检查，和一次改错两遍的归因</h3>
+<p>接着上一篇：reviewer 的 Blocking 只有一句——这 209 个新用例没有任何 CI job 跑。门禁接上之后它自己红了三次，前两次的归因都是错的：第一次怪错了锁文件，第二次把&#34;宽度&#34;当成了原因，真正的原因是 Typer 在 GITHUB_ACTIONS 下强制开色。记下这台&#34;测量仪器&#34;本身需要先修的过程，以及最后怎么在日志被挡住的情况下把绿灯验实。</p>  <div class="post-card__tags">
+<span class="tag">#Agent</span><span class="tag">#评测</span><span class="tag">#CI</span><span class="tag">#工程实践</span>  </div>
+</a>
 <a class="post-card" href="/posts/work-continuity-eval-harness/">
   <div class="post-card__meta">
     <span>2026-10-02</span>
@@ -101,13 +111,14 @@
     </div>
     <div class="tag-cloud">
     <a class="tag" href="/tags/backend/">#后端<span class="count">5</span></a>
+    <a class="tag" href="/tags/engineering/">#工程实践<span class="count">4</span></a>
+    <a class="tag" href="/tags/agent/">#Agent<span class="count">3</span></a>
     <a class="tag" href="/tags/go/">#Go<span class="count">3</span></a>
-    <a class="tag" href="/tags/engineering/">#工程实践<span class="count">3</span></a>
-    <a class="tag" href="/tags/agent/">#Agent<span class="count">2</span></a>
     <a class="tag" href="/tags/mysql/">#MySQL<span class="count">2</span></a>
     <a class="tag" href="/tags/seata/">#Seata<span class="count">2</span></a>
     <a class="tag" href="/tags/distributed-transaction/">#分布式事务<span class="count">2</span></a>
     <a class="tag" href="/tags/microservices/">#微服务<span class="count">2</span></a>
+    <a class="tag" href="/tags/ci/">#CI<span class="count">1</span></a>
     <a class="tag" href="/tags/rpc/">#RPC<span class="count">1</span></a>
     <a class="tag" href="/tags/rocketmq/">#RocketMQ<span class="count">1</span></a>
     <a class="tag" href="/tags/unicode/">#Unicode<span class="count">1</span></a>
@@ -119,7 +130,6 @@
     <a class="tag" href="/tags/performance/">#性能优化<span class="count">1</span></a>
     <a class="tag" href="/tags/tech-writing/">#技术写作<span class="count">1</span></a>
     <a class="tag" href="/tags/productivity/">#效率<span class="count">1</span></a>
-    <a class="tag" href="/tags/database/">#数据库<span class="count">1</span></a>
 </div>
 
   </div>
@@ -150,7 +160,7 @@
     </div>
     <div class="site-footer__bottom">
       <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
-      <span>共 9 篇文章 · 构建于 2026-10-03 05:46</span>
+      <span>共 10 篇文章 · 构建于 2026-10-05 13:29</span>
     </div>
   </div>
 </footer>
