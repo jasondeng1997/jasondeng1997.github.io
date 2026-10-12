@@ -1,5 +1,17 @@
 [
   {
+    "title": "PR 放几天再回来：一次判对的「已被上游修掉」，和一个不该做的关闭",
+    "url": "/posts/superseded-judgment-and-the-close-that-should-not-happen/",
+    "date": "2026-10-12",
+    "tags": [
+      "开源",
+      "Code Review",
+      "工程实践",
+      "复盘"
+    ],
+    "summary": "一个放了几天的 PR 回来时，reviewer 只留了一句 please update & resolve conflicts。查完 master 我判定它已被上游实现——这个判断是对的，但我据此把 PR 关掉了，这个动作是错的。重开后才发现，判断里混了两个不同的检查，而 PR 里确实还剩一条上游没有的不变量。"
+  },
+  {
     "title": "给评测接上 CI 门禁：一条 209 个用例的检查，和一次改错两遍的归因",
     "url": "/posts/evaluation-ci-gate-and-three-guesses/",
     "date": "2026-10-05",

@@ -21,6 +21,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/posts/superseded-judgment-and-the-close-that-should-not-happen/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/posts/evaluation-ci-gate-and-three-guesses/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -121,6 +126,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/tags/code-review/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/tags/rpc/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -151,12 +161,22 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/tags/复盘/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/tags/安全/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/concurrency/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/开源/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
