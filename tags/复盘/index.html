@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>#复盘 标签下的文章 — JasonDeng 的技术随笔</title>
-<meta name="description" content="JasonDeng 的技术随笔 中标签为「复盘」的全部文章，共 1 篇。">
+<meta name="description" content="JasonDeng 的技术随笔 中标签为「复盘」的全部文章，共 2 篇。">
 <meta name="author" content="JasonDeng">
 <meta name="keywords" content="JasonDeng,技术博客,后端,Go,Java,分布式,中间件,微服务,RocketMQ,Apache Dubbo,Dubbo Committer">
 <meta name="theme-color" content="#ffffff">
@@ -71,13 +71,23 @@
       <a href="/">首页</a><span>/</span><a href="/tags/">标签</a><span>/</span><span>#复盘</span>
     </nav>
     <h1>#复盘</h1>
-    <p>共 1 篇相关文章。</p>
+    <p>共 2 篇相关文章。</p>
   </div>
 </section>
 
 <section class="section">
   <div class="wrap">
     <div class="post-list">
+<a class="post-card" href="/posts/seata-at-undolog-for-cross-resource-commit/">
+  <div class="post-card__meta">
+    <span>2026-10-20</span>
+    <span class="dot"></span>
+    <span>4 分钟阅读</span>
+<span class="dot"></span><span>1664 字</span>  </div>
+  <h3>1.2 万行的分布式 PR 关掉之后：Seata AT 里只有 undo log 值得搬</h3>
+<p>一个 141 文件、+12774 行的分布式 PR 被关掉，用户让我借鉴 Seata 重做。我先花时间证明照搬会变成死代码——fencing 与「至多一次提交」master 已经有了。真正缺的只有 undo log，因为代码索引的一次写入要落两个资源管理器，而 rename 加不进 COMMIT。</p>  <div class="post-card__tags">
+<span class="tag">#分布式事务</span><span class="tag">#Seata</span><span class="tag">#工程实践</span><span class="tag">#复盘</span>  </div>
+</a>
 <a class="post-card" href="/posts/superseded-judgment-and-the-close-that-should-not-happen/">
   <div class="post-card__meta">
     <span>2026-10-12</span>
@@ -100,13 +110,13 @@
       <a class="more" href="/tags/">全部标签 →</a>
     </div>
     <div class="tag-cloud">
+    <a class="tag" href="/tags/engineering/">#工程实践<span class="count">6</span></a>
     <a class="tag" href="/tags/backend/">#后端<span class="count">5</span></a>
-    <a class="tag" href="/tags/engineering/">#工程实践<span class="count">5</span></a>
     <a class="tag" href="/tags/agent/">#Agent<span class="count">3</span></a>
     <a class="tag" href="/tags/go/">#Go<span class="count">3</span></a>
+    <a class="tag" href="/tags/seata/">#Seata<span class="count">3</span></a>
+    <a class="tag" href="/tags/distributed-transaction/">#分布式事务<span class="count">3</span></a>
     <a class="tag" href="/tags/mysql/">#MySQL<span class="count">2</span></a>
-    <a class="tag" href="/tags/seata/">#Seata<span class="count">2</span></a>
-    <a class="tag" href="/tags/distributed-transaction/">#分布式事务<span class="count">2</span></a>
     <a class="tag" href="/tags/microservices/">#微服务<span class="count">2</span></a>
     <a class="tag" href="/tags/评测/">#评测<span class="count">2</span></a>
     <a class="tag" href="/tags/ci/">#CI<span class="count">1</span></a>
@@ -150,7 +160,7 @@
     </div>
     <div class="site-footer__bottom">
       <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
-      <span>共 11 篇文章 · 构建于 2026-10-12 06:44</span>
+      <span>共 12 篇文章 · 构建于 2026-10-20 02:48</span>
     </div>
   </div>
 </footer>

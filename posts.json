@@ -1,5 +1,17 @@
 [
   {
+    "title": "1.2 万行的分布式 PR 关掉之后：Seata AT 里只有 undo log 值得搬",
+    "url": "/posts/seata-at-undolog-for-cross-resource-commit/",
+    "date": "2026-10-20",
+    "tags": [
+      "分布式事务",
+      "Seata",
+      "工程实践",
+      "复盘"
+    ],
+    "summary": "一个 141 文件、+12774 行的分布式 PR 被关掉，用户让我借鉴 Seata 重做。我先花时间证明照搬会变成死代码——fencing 与「至多一次提交」master 已经有了。真正缺的只有 undo log，因为代码索引的一次写入要落两个资源管理器，而 rename 加不进 COMMIT。"
+  },
+  {
     "title": "PR 放几天再回来：一次判对的「已被上游修掉」，和一个不该做的关闭",
     "url": "/posts/superseded-judgment-and-the-close-that-should-not-happen/",
     "date": "2026-10-12",

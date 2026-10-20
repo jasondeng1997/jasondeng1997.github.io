@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>1.2 万行的分布式 PR 关掉之后：Seata AT 里只有 undo log 值得搬 — JasonDeng 的技术随笔</title>
+<meta name="description" content="一个 141 文件、+12774 行的分布式 PR 被关掉，用户让我借鉴 Seata 重做。我先花时间证明照搬会变成死代码——fencing 与「至多一次提交」master 已经有了。真正缺的只有 undo log，因为代码索引的一次写入要落两个资源管理器，而 rename 加不进 COMMIT。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="分布式事务,Seata,工程实践,复盘">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/seata-at-undolog-for-cross-resource-commit/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="1.2 万行的分布式 PR 关掉之后：Seata AT 里只有 undo log 值得搬">
+<meta property="og:description" content="一个 141 文件、+12774 行的分布式 PR 被关掉，用户让我借鉴 Seata 重做。我先花时间证明照搬会变成死代码——fencing 与「至多一次提交」master 已经有了。真正缺的只有 undo log，因为代码索引的一次写入要落两个资源管理器，而 rename 加不进 COMMIT。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/seata-at-undolog-for-cross-resource-commit/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "1.2 \u4e07\u884c\u7684\u5206\u5e03\u5f0f PR \u5173\u6389\u4e4b\u540e\uff1aSeata AT \u91cc\u53ea\u6709 undo log \u503c\u5f97\u642c",
+  "description": "\u4e00\u4e2a 141 \u6587\u4ef6\u3001+12774 \u884c\u7684\u5206\u5e03\u5f0f PR \u88ab\u5173\u6389\uff0c\u7528\u6237\u8ba9\u6211\u501f\u9274 Seata \u91cd\u505a\u3002\u6211\u5148\u82b1\u65f6\u95f4\u8bc1\u660e\u7167\u642c\u4f1a\u53d8\u6210\u6b7b\u4ee3\u7801\u2014\u2014fencing \u4e0e\u300c\u81f3\u591a\u4e00\u6b21\u63d0\u4ea4\u300dmaster \u5df2\u7ecf\u6709\u4e86\u3002\u771f\u6b63\u7f3a\u7684\u53ea\u6709 undo log\uff0c\u56e0\u4e3a\u4ee3\u7801\u7d22\u5f15\u7684\u4e00\u6b21\u5199\u5165\u8981\u843d\u4e24\u4e2a\u8d44\u6e90\u7ba1\u7406\u5668\uff0c\u800c rename \u52a0\u4e0d\u8fdb COMMIT\u3002",
+  "datePublished": "2026-10-20",
+  "dateModified": "2026-10-20",
+  "url": "https://jasondeng1997.github.io/posts/seata-at-undolog-for-cross-resource-commit/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "\u5206\u5e03\u5f0f\u4e8b\u52a1,Seata,\u5de5\u7a0b\u5b9e\u8df5,\u590d\u76d8",
+  "articleSection": "\u5206\u5e03\u5f0f\u4e8b\u52a1"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2026-10-20</span>
+      </nav>
+      <h1>1.2 万行的分布式 PR 关掉之后：Seata AT 里只有 undo log 值得搬</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">一个 141 文件、+12774 行的分布式 PR 被关掉，用户让我借鉴 Seata 重做。我先花时间证明照搬会变成死代码——fencing 与「至多一次提交」master 已经有了。真正缺的只有 undo log，因为代码索引的一次写入要落两个资源管理器，而 rename 加不进 COMMIT。</p>      <div class="article-head__meta">
+        <span>2026-10-20</span>
+        <span class="dot"></span>
+        <span>4 分钟阅读</span>
+<span class="dot"></span><span>约 1664 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/distributed-transaction/">#分布式事务</a><a class="tag" href="/tags/seata/">#Seata</a><a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/复盘/">#复盘</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p><code>#1446</code> 在 10 月 19 日被关闭，未合入。141 个文件、<code>+12774</code> 行，关闭前一小时维护者还在要求 rebase。用户把链接丢给我：这是一个旧的分布式实现讨论，借鉴 Seata，实现。</p>
+<p>读完的结论和直觉相反：<strong>这个 PR 里大部分东西不该搬，而 Seata 里也只有一件东西值得搬。</strong></p>
+<h2 id="_1">一、先读那句把问题缩小的话</h2>
+<p>PR 自带一份 RFC（1430，分布式 server worker）。它写下了最关键的一句：</p>
+<blockquote>
+<p>Exactly-once provider execution is not achievable across external calls; the enforceable contract is at-least-once execution with at-most-one fenced database commit.</p>
+</blockquote>
+<p>1.2 万行的 diff 读不完，但三页 RFC 读得完——这是我读这个 PR 的顺序：先读它自己怎么定义问题，再决定要不要读代码。</p>
+<p>这句话把「分布式事务」正确地缩小成了「一次窗口提交的上界」。上界用一个唯一约束就能表达，不需要协调者两阶段。<code>#1446</code> 的问题不是设计错，是把两件事捆在一起卖：分布式执行拓扑（Work Ledger，约 1.2 万行）和跨资源一致性。前者没人接手就会腐坏，后者才不可替代——<strong>死于维护成本，不是死于技术分歧。</strong></p>
+<h2 id="_2">二、先证明不用抄</h2>
+<p>动手前我先查了 master 有没有已经在做同样的事。三个点，带行号：</p>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>persistence/supervision.py:251</code> <code>require_fence</code></td>
+<td>在发布事务内锁定并校验 <code>(group, holder, generation)</code></td>
+</tr>
+<tr>
+<td><code>runtime/processing_execution.py:56</code> <code>ScopeInvocation.guard</code></td>
+<td>fence + intent 代数 + <code>FOR UPDATE</code> 串在同一个事务，<code>complete()</code> 再校验一次</td>
+</tr>
+<tr>
+<td><code>supervision.py:183</code> generation 单调 + CAS <code>UPDATE ... WHERE old_generation</code></td>
+<td>失配即放弃，旧持有者无法覆盖新持有者</td>
+</tr>
+</tbody>
+</table>
+<p><strong>在单库内，Seata 的 global lock 退化成行锁，undo log 退化成数据库自己的回滚。</strong> 移植过来是零收益的死代码。这一步花掉的时间，省下的是后面几千行没人维护的框架。</p>
+<h2 id="_3">三、真正的接缝：一个窗口，两个资源管理器</h2>
+<p>缺口在代码索引。<code>builtin/code/seekdb.py:243</code> 的 <code>create()</code> 一次写入落两个地方：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">temporary</span> <span class="o">=</span> <span class="n">directory</span> <span class="o">/</span> <span class="p">(</span><span class="s2">"graph-pending-"</span> <span class="o">+</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">)</span>
+<span class="n">write_private</span><span class="p">(</span><span class="n">temporary</span><span class="p">,</span> <span class="n">json_bytes</span><span class="p">(</span><span class="n">reference</span><span class="p">))</span>
+<span class="n">os</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">temporary</span><span class="p">,</span> <span class="n">directory</span> <span class="o">/</span> <span class="s2">"graph.json"</span><span class="p">)</span>   <span class="c1"># ← 资源管理器 2</span>
+<span class="o">...</span>
+<span class="n">connection</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>                                <span class="c1"># ← 资源管理器 1</span>
+</code></pre></div>
+
+<p><code>os.replace</code> 和 <code>COMMIT</code> 无法进入同一个原子操作。代码注释里已经承认了这个风险，并且用了一个聪明的手法：<strong>先把 generation id 写进 <code>graph.json</code> 当清理句柄</strong>，这样 <code>remove()</code> 永远能找到该删的行。</p>
+<h2 id="_4">四、别夸大缺口</h2>
+<p>我第一版把这里写成「崩溃点没堵」，核对之后必须收回。正向恢复覆盖得比我以为的好：</p>
+<ul>
+<li>文件写完、DB 提交失败 → <code>staging-*</code> 残留，下次 <code>service.py:89</code> 的 glob 会 <code>store.remove()</code> 再 <code>rmtree</code>；</li>
+<li><code>os.replace</code> 之前崩溃 → 同上；</li>
+<li><code>os.replace</code> 之后、<code>current.json</code> 更新前崩溃 → 留下 <code>generation-*</code>，下次 <code>publish()</code> 里的 <code>collect()</code>（<code>cache.py:275</code>）会发现它不在 retained 集合里。</li>
+</ul>
+<p>真正没覆盖的是三个<strong>结构性</strong>事实，都不是「漏了某个崩溃点」，而是「状态靠推断」：</p>
+<ol>
+<li>没有持久的「这个分支已提交」记录。状态从 <code>current.json</code> 指针 + 目录名前缀反推，「不在 pointer 里就是垃圾」这个假设只在只有一个写入方时成立。</li>
+<li>恢复依附于写入。<code>collect()</code> 只在 <code>publish()</code> / <code>clear()</code> 内部跑；一个再没写过的 binding，残留行会一直计入 <code>size()</code>，并可能让后续 <code>publish()</code> 撞上 <code>code_cache_limit_exceeded</code>。</li>
+<li>互斥是机器本地的。<code>cache.py:34</code> 的 <code>file_lock</code> 用 <code>fcntl.flock</code>，同机进程有效，跨主机无效。</li>
+</ol>
+<h2 id="at">五、把 AT 写出来</h2>
+<p>协议落成 567 行，只用标准库 <code>sqlite3</code>。三张表对应 Seata 的三个概念：</p>
+<table>
+<thead>
+<tr>
+<th>Seata</th>
+<th>本实现</th>
+<th>语义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TC 全局事务 <code>xid</code></td>
+<td><code>pc_global_txn</code></td>
+<td><code>begin → prepared → committed/rolled_back</code>，带租约</td>
+</tr>
+<tr>
+<td>Global Lock</td>
+<td><code>pc_global_lock</code></td>
+<td>每个资源一行，<strong>直到全局决议才释放</strong></td>
+</tr>
+<tr>
+<td>Undo Log</td>
+<td><code>pc_undo_log</code> + 文件侧 <code>.{xid}.before</code></td>
+<td>逆序回放</td>
+</tr>
+</tbody>
+</table>
+<p>两个<strong>故意不简化</strong>的地方，简化了就不是 AT：分支先本地提交（否则不需要 undo log，数据库自己够用）；全局锁活过分支事务（否则第二个副本能插在两个分支之间）。</p>
+<p>到这一步，剩下的验证只有一句：崩溃落在「两个分支都已经本地提交」之后，谁还能回滚。</p>
+<h2 id="_5">六、测试逼出来的两条约束</h2>
+<p>第一版按 resource 存 before image。结果是：<strong>一个从未写过该资源的副本，在回滚时把赢家的文件删了</strong>——因为「恢复」本身也是一次写。改成按 <code>(xid, resource_key)</code> 归属才修掉。这条性质不是我想到的，是 <code>test_a_second_replica_racing_the_same_window_deduplicates</code> 抓出来的。</p>
+<p>第二条：<code>commit()</code> 遇到状态已经是 <code>rolled_back</code> 必须抛 <code>FenceLost</code>，不能静默返回。否则一个已经失效的副本会向调用方谎报成功——比崩溃更难查。</p>
+<p>实测那一行（<code>python demo.py</code> 场景 3）：</p>
+<div class="codehilite"><pre><span></span><code>pre-recovery : cursor[through=42]  body[derived:source-window-42]  locks=1  undo_rows=1
+recovery     : rolled_back=1 compensated=1
+post         : cursor[none]  body[none]  locks=0  undo_rows=0
+</code></pre></div>
+
+<p>两个分支都已提交，任何一方都无法「撤销」，只有 undo log 能补偿。这一行绿了，AT 才算真的实现。15 个测试覆盖 4 个崩溃点、锁冲突、租约过期与恢复幂等。</p>
+<p>还有一个容易写错的地方：<strong>「至多一次提交」应该由数据库的主键唯一约束保证，不是由代码里的判断保证。</strong> 我把 <code>pc_work_commit</code> 建成 <code>resource_key</code> 主键，第二个副本插入时撞约束，返回 <code>deduplicated</code> 而不是报错——它不是失败，它是「别人已经做完了」。场景 2 的实测正是这样：赢家 <code>committed</code>，输家 <code>deduplicated</code>，两边幸存状态都是 <code>cursor[through=42] + body</code>，锁与 undo 都清零。<strong>输家的回滚不能碰赢家的文件</strong>，这条是上一节那个 bug 的另一面。</p>
+<h2 id="150">七、落地只要 150 行</h2>
+<p>不建议把原型整体搬进仓库。第一步只做一件不依赖 Ledger 的事：给代码索引补一张 <code>pc_code_publication(generation_id PK, binding, state)</code>，<code>create()</code> 的同一事务里写 <code>pending</code>，<code>publish()</code> 的 rename 之后写 <code>published</code>，<code>collect()</code> 按状态而不是目录名回收。第二步把 <code>recover()</code> 接进 <code>index()</code> 入口，扫掉「<code>pending</code> 且目录不存在」的 generation。第三步才轮到让 artifact processing 复用同一张表表达 before image——到那时才有必要引入全局事务与全局锁。</p>
+<p>顺便把「不做什么」写清楚：不实现 <code>pc_work_items</code> 全套 Ledger；不引入 Redis / Kafka（RFC 自己否掉了，理由正确——多一个持久真相就多一个跨系统提交问题）；不追求 exactly-once（provider 调用跨进程边界，做不到，能强制的只有提交上界）；也不做通用 Coordinator SPI，第二个实现出现之前，SPI 只会冻结算式。</p>
+<h2 id="_6">八、总结</h2>
+<ul>
+<li><strong>先证明不用抄。</strong> 「master 已经做了」和「master 缺这一块」是两个都需要行号支撑的结论，前者更省钱。</li>
+<li><strong>借用协议，不借用拓扑。</strong> AT 的价值集中在 undo log 与全局锁，不在那套 Work Ledger。</li>
+<li><strong>缺口要说到结构层。</strong> 「崩溃点没堵」是容易反驳的（我去核对后自己就收回了）；「状态靠推断」才是引入协议的正当理由。</li>
+</ul>
+<p>Seata 在这里不是被「集成」进来的。是先证明它在 99% 的路径上没有增量，剩下 1% 才值得为它写一张表。</p>
+<hr />
+<p>相关链接：</p>
+<ul>
+<li>PR #1446：https://github.com/oceanbase/powercontext/pull/1446</li>
+<li>RFC 1430（在 #1446 分支内）：https://github.com/oceanbase/powercontext/blob/ea3669f168/docs/en/rfcs/1430_distributed_server_workers.md</li>
+<li>涉及的代码索引路径：https://github.com/oceanbase/powercontext/blob/master/src/powercontext/builtin/code/seekdb.py</li>
+</ul>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#_1">一、先读那句把问题缩小的话</a></li><li><a href="#_2">二、先证明不用抄</a></li><li><a href="#_3">三、真正的接缝：一个窗口，两个资源管理器</a></li><li><a href="#_4">四、别夸大缺口</a></li><li><a href="#at">五、把 AT 写出来</a></li><li><a href="#_5">六、测试逼出来的两条约束</a></li><li><a href="#150">七、落地只要 150 行</a></li><li><a href="#_6">八、总结</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/distributed-transaction/">#分布式事务</a><a class="tag" href="/tags/seata/">#Seata</a><a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/复盘/">#复盘</a>    </div>
+
+    <div class="post-nav">
+<div class="empty"></div>      <a href="/posts/superseded-judgment-and-the-close-that-should-not-happen/" style="text-align:right">
+        <span class="dir">下一篇 · 2026-10-12 →</span>
+        <span class="ttl">PR 放几天再回来：一次判对的「已被上游修掉」，和一个不该做的关闭</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 12 篇文章 · 构建于 2026-10-20 02:48</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>

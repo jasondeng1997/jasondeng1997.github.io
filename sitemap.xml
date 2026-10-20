@@ -21,6 +21,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/posts/seata-at-undolog-for-cross-resource-commit/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/posts/superseded-judgment-and-the-close-that-should-not-happen/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -76,12 +81,12 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/backend/</loc>
+    <loc>https://jasondeng1997.github.io/tags/engineering/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/engineering/</loc>
+    <loc>https://jasondeng1997.github.io/tags/backend/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -96,17 +101,22 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/mysql/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://jasondeng1997.github.io/tags/seata/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/distributed-transaction/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/mysql/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/复盘/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -157,11 +167,6 @@
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/teamwork/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://jasondeng1997.github.io/tags/复盘/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
