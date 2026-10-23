@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 600" width="1160" height="600" role="img" aria-label="两个 P1 洞：快照与入队之间的间隙，以及绕过 fence 的提前提交">
+  <defs>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5261"/>
+    </marker>
+    <marker id="br" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+    </marker>
+  </defs>
+
+  <rect width="1160" height="600" fill="#ffffff"/>
+
+  <!-- ===== LEFT PANEL ===== -->
+  <text x="40" y="34" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="14.5" font-weight="600" fill="#1f2328">洞一：page() 在事务外，逻辑 key 释放替陈旧快照开了门</text>
+
+  <rect x="40" y="52" width="520" height="430" rx="10" fill="#fcfcfd" stroke="#e3e6eb" stroke-width="1.2"/>
+
+  <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5">
+    <!-- step 1 -->
+    <rect x="60" y="76" width="480" height="54" rx="6" fill="#f0f7ee" stroke="#7aa86b" stroke-width="1.2"/>
+    <text x="74" y="96" font-size="12" font-weight="600" fill="#1f2328">t0  Scheduler 快照：cursor 0 → 2</text>
+    <text x="74" y="116" fill="#4a5261">page() 无事务保护，读到的 after=0 / through=2 只是当时的视图</text>
+
+    <!-- step 2 -->
+    <rect x="60" y="146" width="480" height="54" rx="6" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.2"/>
+    <text x="74" y="166" font-size="12" font-weight="600" fill="#1f2328">t1  manual flush 入队窗口 0 → 1</text>
+    <text x="74" y="186" fill="#4a5261">logical key 相同，于是 join 到正在排队的同一个 work</text>
+
+    <!-- step 3 -->
+    <rect x="60" y="216" width="480" height="54" rx="6" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.2"/>
+    <text x="74" y="236" font-size="12" font-weight="600" fill="#1f2328">t2  manual 窗口提交成功，cursor=1</text>
+    <text x="74" y="256" fill="#4a5261">complete() 里释放 logical key、lane head 前移 —— 这是唯一的占用被解开了</text>
+
+    <!-- step 4 -->
+    <rect x="60" y="286" width="480" height="54" rx="6" fill="#fdeeee" stroke="#e07070" stroke-width="1.3"/>
+    <text x="74" y="306" font-size="12" font-weight="600" fill="#9b1c1c">t3  Scheduler 拿 t0 的快照入队</text>
+    <text x="74" y="326" fill="#7f1d1d">key 已空出，插入成功：一个新 work，payload 写着 after=0 / through=2</text>
+
+    <!-- step 5 -->
+    <rect x="60" y="356" width="480" height="54" rx="6" fill="#fdeeee" stroke="#e07070" stroke-width="1.3"/>
+    <text x="74" y="376" font-size="12" font-weight="600" fill="#9b1c1c">t4  Worker 执行：_require_exact_cursor 失配</text>
+    <text x="74" y="396" fill="#7f1d1d">库里 cursor 已是 1，payload 要求 0 → cursor_changed，可重试但永远重试不过</text>
+
+    <!-- result -->
+    <rect x="60" y="426" width="480" height="40" rx="6" fill="#9b1c1c"/>
+    <text x="74" y="451" font-size="12" font-weight="600" fill="#ffffff">终态失败保住 logical key 与 lane 占位 —— 后面所有窗口被堵在这条 lane 上</text>
+  </g>
+
+  <text x="40" y="508" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">去重只能挡住「同一个 cursor 被排两次」。</text>
+  <text x="40" y="528" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">它挡不住「读快照」和「写占位」之间被夹一次提交 —— 那是 TOCTOU，不是去重问题。</text>
+  <text x="40" y="552" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a5a00">修法只有一条：入队前在 lane 锁内复核 cursor，或退休被超越的窗口后重扫剩余 Source。</text>
+
+  <!-- ===== RIGHT PANEL ===== -->
+  <text x="600" y="34" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="14.5" font-weight="600" fill="#1f2328">洞二：Profile handler 在 prepare 里就提交了，fence 校验收不到它</text>
+
+  <rect x="600" y="52" width="520" height="430" rx="10" fill="#fcfcfd" stroke="#e3e6eb" stroke-width="1.2"/>
+
+  <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5">
+    <!-- worker A lane -->
+    <text x="620" y="78" font-size="12" font-weight="600" fill="#1f2328">Worker A（fence=1，租约 120s）</text>
+    <rect x="620" y="88" width="220" height="40" rx="6" fill="#fff4e8" stroke="#e0a458"/>
+    <text x="632" y="113" fill="#1f2328">claim → prepare()</text>
+
+    <rect x="620" y="144" width="220" height="56" rx="6" fill="#fdeeee" stroke="#e07070" stroke-width="1.3"/>
+    <text x="632" y="164" font-size="12" font-weight="600" fill="#9b1c1c">profiles.flush() 自己 commit</text>
+    <text x="632" y="184" fill="#7f1d1d">Profile 与 Profile cursor 已durable</text>
+
+    <rect x="620" y="216" width="220" height="40" rx="6" fill="#fff4e8" stroke="#e0a458"/>
+    <text x="632" y="241" fill="#1f2328">complete() → 校验 lease</text>
+
+    <rect x="620" y="272" width="220" height="56" rx="6" fill="#fdeeee" stroke="#e07070" stroke-width="1.3"/>
+    <text x="632" y="292" font-size="12" font-weight="600" fill="#9b1c1c">StaleWorkClaimError</text>
+    <text x="632" y="312" fill="#7f1d1d">ledger 回滚了，领域写已经落地</text>
+
+    <!-- worker B lane -->
+    <text x="880" y="78" font-size="12" font-weight="600" fill="#1f2328">Worker B（fence=2，接手）</text>
+    <rect x="880" y="88" width="220" height="40" rx="6" fill="#eef4ff" stroke="#7aa2f7"/>
+    <text x="892" y="113" fill="#1f2328">lease 过期后重新领取</text>
+
+    <rect x="880" y="144" width="220" height="56" rx="6" fill="#eef4ff" stroke="#7aa2f7"/>
+    <text x="892" y="164" font-size="12" font-weight="600" fill="#1f2328">再跑一次 prepare()</text>
+    <text x="892" y="184" fill="#4a5261">cursor 已推进 → 走 already_committed</text>
+
+    <text x="880" y="232" fill="#5b6270">两个 worker 都「成功」了，</text>
+    <text x="880" y="252" fill="#5b6270">但 ledger 里 attempt 1 是失败，</text>
+    <text x="880" y="272" fill="#5b6270">领域状态却已经前进。</text>
+    <text x="880" y="296" fill="#5b6270">这正是 RFC 要禁止的那件事。</text>
+
+    <rect x="620" y="348" width="480" height="40" rx="6" fill="#9b1c1c"/>
+    <text x="634" y="373" font-size="12" font-weight="600" fill="#ffffff">Memory / Experience 返回 commit 闭包；Profile 返回 commit=None</text>
+  </g>
+
+  <text x="620" y="410" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">而 PreparedWork.commit 的类型是</text>
+  <text x="620" y="430" font-family="'SFMono-Regular',Menlo,monospace" font-size="11.5" fill="#1f2328">commit: WorkCommit | None</text>
+  <text x="620" y="452" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a5a00">—— 这个「| None」让违反不变量在类型上完全合法。</text>
+
+  <text x="600" y="508" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">RFC 写的是「领域写入、cursor 推进、attempt 完成、work success 一起提交」。</text>
+  <text x="600" y="528" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">实现里这句话只对三个 handler 成立，第四个有合法的逃生门。</text>
+  <text x="600" y="552" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a5a00">修法不是加注释：让 prepare() 无法产生副作用，commit 不可为空。</text>
+</svg>

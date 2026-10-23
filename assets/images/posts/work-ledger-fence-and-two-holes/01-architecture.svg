@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 760" width="1160" height="760" role="img" aria-label="Work Ledger 架构：入队、领取、事务外执行、fenced 提交四段路">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5261"/>
+    </marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+    </marker>
+  </defs>
+
+  <rect width="1160" height="760" fill="#ffffff"/>
+
+  <text x="40" y="34" font-family="'PingFang SC','Microsoft YaHei',-apple-system,sans-serif" font-size="15" font-weight="600" fill="#1f2328">一次逻辑窗口的四段路：只有第 ② 段可以（也必须）在事务外</text>
+
+  <!-- API -->
+  <rect x="40" y="70" width="240" height="88" rx="8" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.4"/>
+  <text x="58" y="96" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13.5" font-weight="600" fill="#1f2328">API 副本 × N</text>
+  <text x="58" y="118" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#4a5261">POST /v1/memory/flush</text>
+  <text x="58" y="138" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#4a5261">无粘性会话，任意副本入队</text>
+
+  <!-- Scheduler -->
+  <rect x="40" y="200" width="240" height="88" rx="8" fill="#f0f7ee" stroke="#7aa86b" stroke-width="1.4"/>
+  <text x="58" y="226" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13.5" font-weight="600" fill="#1f2328">Scheduler × 2</text>
+  <text x="58" y="248" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#4a5261">leader 持 lease + 单调 fence</text>
+  <text x="58" y="268" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#4a5261">standby 只轮询，不扫描</text>
+
+  <!-- Ledger -->
+  <rect x="430" y="70" width="360" height="300" rx="10" fill="#f6f3fb" stroke="#8b7cc8" stroke-width="1.6"/>
+  <text x="450" y="96" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13.5" font-weight="600" fill="#1f2328">OceanBase Work Ledger（8 张表）</text>
+  <text x="450" y="116" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">既是队列，也是锁服务，也是状态机</text>
+
+  <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#1f2328">
+    <rect x="450" y="130" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="462" y="150">pc_work_items</text>
+    <rect x="616" y="130" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="628" y="150">pc_work_lanes</text>
+
+    <rect x="450" y="170" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="462" y="190">pc_work_keys</text>
+    <rect x="616" y="170" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="628" y="190">pc_work_attempts</text>
+
+    <rect x="450" y="210" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="462" y="230">pc_scheduler_leases</text>
+    <rect x="616" y="210" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="628" y="230">pc_scheduler_scans</text>
+
+    <rect x="450" y="250" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="462" y="270">pc_runtime_members</text>
+    <rect x="616" y="250" width="150" height="30" rx="5" fill="#ffffff" stroke="#b9aede"/>
+    <text x="628" y="270">pc_rate_limit_windows</text>
+  </g>
+
+  <text x="450" y="306" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">租约到期、顺序推进、去重占位全部由数据库判定</text>
+  <text x="450" y="326" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">时间一律取库时间，应用时钟只管 poll 和 deadline</text>
+  <text x="450" y="350" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a5a00">payload 只存版本号与数字窗口边界，不存正文</text>
+
+  <!-- Worker -->
+  <rect x="870" y="70" width="250" height="110" rx="8" fill="#fff4e8" stroke="#e0a458" stroke-width="1.4"/>
+  <text x="888" y="96" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13.5" font-weight="600" fill="#1f2328">Worker × N</text>
+  <text x="888" y="118" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#4a5261">① 领取 lane 队头，签 fence</text>
+  <text x="888" y="138" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#4a5261">只领空闲槽，不预取</text>
+  <text x="888" y="158" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#4a5261">120s 租约，30s 续租</text>
+
+  <!-- arrows -->
+  <path d="M280,114 L424,114" stroke="#4a5261" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <text x="286" y="102" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#1f2328">① 入队（短事务）</text>
+
+  <path d="M280,244 L424,244" stroke="#4a5261" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <text x="286" y="232" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#1f2328">① 扫描后入队</text>
+
+  <path d="M790,114 L864,114" stroke="#4a5261" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+
+  <!-- phase 2 -->
+  <path d="M995,180 L995,458" stroke="#c2410c" stroke-width="1.8" stroke-dasharray="6 5" fill="none" marker-end="url(#ar)"/>
+  <text x="1011" y="256" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#c2410c">② 事务外</text>
+  <text x="1011" y="278" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#c2410c">provider / model 调用</text>
+  <text x="1011" y="298" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#c2410c">秒级到分钟级</text>
+  <text x="1011" y="326" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">持事务等模型</text>
+  <text x="1011" y="346" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">= 连接池被钉死</text>
+  <text x="1011" y="366" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">+ 锁持有时间由</text>
+  <text x="1011" y="386" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">外部服务决定</text>
+
+  <!-- phase 3 dashed -->
+  <rect x="430" y="470" width="720" height="196" rx="10" fill="#fcfcfd" stroke="#9aa3b2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <text x="450" y="496" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#1f2328">③ 一个 COMMIT：先验 fence，再落领域写</text>
+  <text x="450" y="516" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">租约过期或被抢占 → 整个事务回滚，旧 attempt 无法发布任何结果</text>
+
+  <rect x="454" y="534" width="322" height="104" rx="8" fill="#f6f3fb" stroke="#8b7cc8" stroke-width="1.3"/>
+  <text x="470" y="558" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#1f2328">Ledger 侧</text>
+  <text x="470" y="580" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">状态 → succeeded</text>
+  <text x="470" y="600" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">attempt 收尾 · lane head 前移</text>
+  <text x="470" y="620" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">逻辑 key 释放</text>
+
+  <rect x="808" y="534" width="322" height="104" rx="8" fill="#eef7f2" stroke="#6ea88f" stroke-width="1.3"/>
+  <text x="824" y="558" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#1f2328">领域侧</text>
+  <text x="824" y="580" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">cursor CAS 推进（generation 必须命中）</text>
+  <text x="824" y="600" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">memory head / profile 写入</text>
+  <text x="824" y="620" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">两者要么一起提交，要么一起回滚</text>
+
+  <path d="M778,586 L804,586" stroke="#4a5261" stroke-width="1.4" fill="none" marker-end="url(#a)" marker-start="url(#a)"/>
+
+  <path d="M790,666 L790,700" stroke="#4a5261" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <rect x="530" y="706" width="520" height="34" rx="17" fill="#1f2328"/>
+  <text x="790" y="728" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" fill="#ffffff">一个逻辑 Source 窗口 → 至多一个数据库结果</text>
+
+  <text x="40" y="520" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">execution 是 at-least-once：</text>
+  <text x="40" y="540" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">崩溃后 provider 可能被调两次</text>
+  <text x="40" y="566" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">commit 是 at-most-once：</text>
+  <text x="40" y="586" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">fence + cursor CAS 只放一个赢家</text>
+  <text x="40" y="616" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a5a00">这两句话是整个设计的全部前提</text>
+</svg>
