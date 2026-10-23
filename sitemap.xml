@@ -21,6 +21,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/posts/work-ledger-fence-and-two-holes/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/posts/seata-at-undolog-for-cross-resource-commit/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -111,12 +116,12 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/mysql/</loc>
+    <loc>https://jasondeng1997.github.io/tags/复盘/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/复盘/</loc>
+    <loc>https://jasondeng1997.github.io/tags/mysql/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -141,6 +146,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/tags/oceanbase/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/tags/rpc/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -157,6 +167,16 @@
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/dubbo-go/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/任务队列/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/分布式/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

@@ -1,5 +1,18 @@
 [
   {
+    "title": "fence 写对了，洞还在：拆一个被关掉的分布式任务系统",
+    "url": "/posts/work-ledger-fence-and-two-holes/",
+    "date": "2026-10-23",
+    "tags": [
+      "分布式",
+      "任务队列",
+      "OceanBase",
+      "工程实践",
+      "复盘"
+    ],
+    "summary": "#1446 的 Work Ledger 把分布式正确性全部押在数据库上：唯一 key 去重、lane 严格串行、单调 fence、库时间判过期。协议很干净，但 review 里两个 P1 洞都穿过它自己声明的不变量——一个在「读快照」和「写占位」的缝里，一个在一个 handler 的提前提交里。"
+  },
+  {
     "title": "1.2 万行的分布式 PR 关掉之后：Seata AT 里只有 undo log 值得搬",
     "url": "/posts/seata-at-undolog-for-cross-resource-commit/",
     "date": "2026-10-20",

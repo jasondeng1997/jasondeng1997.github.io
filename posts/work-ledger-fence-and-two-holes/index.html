@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>fence 写对了，洞还在：拆一个被关掉的分布式任务系统 — JasonDeng 的技术随笔</title>
+<meta name="description" content="#1446 的 Work Ledger 把分布式正确性全部押在数据库上：唯一 key 去重、lane 严格串行、单调 fence、库时间判过期。协议很干净，但 review 里两个 P1 洞都穿过它自己声明的不变量——一个在「读快照」和「写占位」的缝里，一个在一个 handler 的提前提交里。">
+<meta name="author" content="JasonDeng">
+<meta name="keywords" content="分布式,任务队列,OceanBase,工程实践,复盘">
+<meta name="theme-color" content="#ffffff">
+<meta name="generator" content="custom-static-generator">
+<link rel="canonical" href="https://jasondeng1997.github.io/posts/work-ledger-fence-and-two-holes/">
+
+<link rel="icon" href="/assets/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="JasonDeng 的技术随笔" href="/feed.xml">
+<link rel="stylesheet" href="/assets/static/style.css">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="JasonDeng 的技术随笔">
+<meta property="og:title" content="fence 写对了，洞还在：拆一个被关掉的分布式任务系统">
+<meta property="og:description" content="#1446 的 Work Ledger 把分布式正确性全部押在数据库上：唯一 key 去重、lane 严格串行、单调 fence、库时间判过期。协议很干净，但 review 里两个 P1 洞都穿过它自己声明的不变量——一个在「读快照」和「写占位」的缝里，一个在一个 handler 的提前提交里。">
+<meta property="og:url" content="https://jasondeng1997.github.io/posts/work-ledger-fence-and-two-holes/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "fence \u5199\u5bf9\u4e86\uff0c\u6d1e\u8fd8\u5728\uff1a\u62c6\u4e00\u4e2a\u88ab\u5173\u6389\u7684\u5206\u5e03\u5f0f\u4efb\u52a1\u7cfb\u7edf",
+  "description": "#1446 \u7684 Work Ledger \u628a\u5206\u5e03\u5f0f\u6b63\u786e\u6027\u5168\u90e8\u62bc\u5728\u6570\u636e\u5e93\u4e0a\uff1a\u552f\u4e00 key \u53bb\u91cd\u3001lane \u4e25\u683c\u4e32\u884c\u3001\u5355\u8c03 fence\u3001\u5e93\u65f6\u95f4\u5224\u8fc7\u671f\u3002\u534f\u8bae\u5f88\u5e72\u51c0\uff0c\u4f46 review \u91cc\u4e24\u4e2a P1 \u6d1e\u90fd\u7a7f\u8fc7\u5b83\u81ea\u5df1\u58f0\u660e\u7684\u4e0d\u53d8\u91cf\u2014\u2014\u4e00\u4e2a\u5728\u300c\u8bfb\u5feb\u7167\u300d\u548c\u300c\u5199\u5360\u4f4d\u300d\u7684\u7f1d\u91cc\uff0c\u4e00\u4e2a\u5728\u4e00\u4e2a handler \u7684\u63d0\u524d\u63d0\u4ea4\u91cc\u3002",
+  "datePublished": "2026-10-23",
+  "dateModified": "2026-10-23",
+  "url": "https://jasondeng1997.github.io/posts/work-ledger-fence-and-two-holes/",
+  "author": { "@type": "Person", "name": "JasonDeng", "url": "https://github.com/jasondeng1997" },
+  "publisher": { "@type": "Organization", "name": "JasonDeng \u7684\u6280\u672f\u968f\u7b14" },
+  "keywords": "\u5206\u5e03\u5f0f,\u4efb\u52a1\u961f\u5217,OceanBase,\u5de5\u7a0b\u5b9e\u8df5,\u590d\u76d8",
+  "articleSection": "\u5206\u5e03\u5f0f"
+}
+</script>
+</head>
+<body>
+<a class="sr-only" href="#main">跳到主要内容</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark">JD</span>
+      <span class="brand__text">
+        JasonDeng
+        <small>技术随笔</small>
+      </span>
+    </a>
+    <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/archive/">归档</a>
+        <a href="/tags/">标签</a>
+        <a href="/about/">关于</a>
+        <a href="/admin/">写文章</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" type="button" data-open-search aria-label="搜索文章（快捷键 /）" title="搜索（/）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题"></button>
+      <button class="icon-btn nav-toggle" type="button" id="nav-toggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="progress" id="progress-bar"></div>
+
+<header class="article-head">
+  <div class="wrap">
+    <div class="article-head__inner">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="/">首页</a><span>/</span>
+        <a href="/archive/">归档</a><span>/</span>
+        <span>2026-10-23</span>
+      </nav>
+      <h1>fence 写对了，洞还在：拆一个被关掉的分布式任务系统</h1>
+<p class="lead" style="color:var(--text-soft);font-size:16.5px;margin:0 0 18px">#1446 的 Work Ledger 把分布式正确性全部押在数据库上：唯一 key 去重、lane 严格串行、单调 fence、库时间判过期。协议很干净，但 review 里两个 P1 洞都穿过它自己声明的不变量——一个在「读快照」和「写占位」的缝里，一个在一个 handler 的提前提交里。</p>      <div class="article-head__meta">
+        <span>2026-10-23</span>
+        <span class="dot"></span>
+        <span>7 分钟阅读</span>
+<span class="dot"></span><span>约 2558 字</span>      </div>
+      <div class="article-head__tags">
+<a class="tag" href="/tags/分布式/">#分布式</a><a class="tag" href="/tags/任务队列/">#任务队列</a><a class="tag" href="/tags/oceanbase/">#OceanBase</a><a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/复盘/">#复盘</a>      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout-post">
+    <article class="prose" id="article-body">
+      <p><code>#1446</code> 在 10 月 19 日关掉，未合入：141 个文件、<code>+12774</code> 行、24 个 commit。几天前我写过它在「跨资源提交」上该不该借 Seata；这篇换一把刀，只拆它自己那套 Work Ledger —— 一个把分布式正确性全部押在数据库上的执行框架。</p>
+<p>结论先给：<strong>协议是干净的。洞不在协议里，在协议和代码的接缝上。</strong></p>
+<h2 id="_1">一、它要换掉的，是三个「只有一个进程」的假设</h2>
+<p>旧实现的底座是 APScheduler 加一个 SQLite sidecar。上面叠着三条假设：</p>
+<table>
+<thead>
+<tr>
+<th>假设</th>
+<th>扩副本那天会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>handler 注册在进程内</td>
+<td>新副本不知道自己要跑什么</td>
+</tr>
+<tr>
+<td>MCP session 在进程内</td>
+<td>负载均衡必须粘性，否则上一个请求的会话找不到</td>
+</tr>
+<tr>
+<td>调度状态在本地文件</td>
+<td>Scheduler 没有 failover，只能重启</td>
+</tr>
+</tbody>
+</table>
+<p>三条假设的共同点是：<strong>它们都不是被写下来的约束，而是「系统只有一个进程」这条隐性经验的不同说法。</strong> 隐性经验最麻烦的地方在于，它不会在评审里被反驳，只会在扩副本的那天同时失效。</p>
+<p>RFC 干的事就是把这些经验换成显式约束：租约、fence、单调序号、唯一 key、启动时校验。方向是对的，下面都建立在这个前提上。</p>
+<h2 id="_2">二、一次窗口提交要走四段路</h2>
+<p><img alt="Work Ledger 架构：入队、领取、事务外执行、fenced 提交四段路" src="/assets/images/posts/work-ledger-fence-and-two-holes/01-architecture.svg" /></p>
+<p>① 入队是短事务：定窗口、去重、写占位。① 领取也是短事务：拿 lane 队头，签一个 fence。② 调 provider 在事务外。③ 一个 COMMIT 里先验 fence，再落领域写。</p>
+<p>这四段里只有 ② 慢。它慢到不能用事务包住：一次 extraction 几秒到几十秒，事务持有多久，连接就被钉住多久，锁的持有时间由别人的 P99 决定。这是把可用性交给了外部服务。</p>
+<p>所以整个设计能压成一句，也是 RFC 自己写下的那句：</p>
+<blockquote>
+<p>跨进程调用做不到 exactly-once；能强制的契约是 at-least-once 执行，加 at-most-once 的 fenced 提交。</p>
+</blockquote>
+<p>「执行可能重复，提交只许一次」。后半句不靠协调者，靠一个唯一约束加一个单调号。</p>
+<h2 id="_3">三、八张表，其实是三种真相</h2>
+<table>
+<thead>
+<tr>
+<th>要表达的东西</th>
+<th>落在哪</th>
+<th>靠什么保证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>唯一性</td>
+<td><code>pc_work_keys</code></td>
+<td>主键，一个逻辑窗口只能有一个占用者</td>
+</tr>
+<tr>
+<td>顺序</td>
+<td><code>pc_work_lanes.head_sequence</code></td>
+<td>每个一致性域严格串行，只认队头</td>
+</tr>
+<tr>
+<td>状态</td>
+<td><code>pc_work_items.state_version</code></td>
+<td>每次迁移加一，CAS 写回</td>
+</tr>
+<tr>
+<td>领导权</td>
+<td><code>pc_scheduler_leases.fence</code></td>
+<td>单调递增，只增不减</td>
+</tr>
+<tr>
+<td>审计</td>
+<td><code>pc_work_attempts</code></td>
+<td>append-only，谁在什么时候试过</td>
+</tr>
+<tr>
+<td>扫描进度</td>
+<td><code>pc_scheduler_scans</code></td>
+<td>keyset continuation，崩了重扫也安全</td>
+</tr>
+<tr>
+<td>兼容性</td>
+<td><code>pc_runtime_members</code></td>
+<td>哪些角色活着、支持哪个 payload 版本</td>
+</tr>
+<tr>
+<td>配额</td>
+<td><code>pc_rate_limit_windows</code></td>
+<td>跨副本共享的固定窗口</td>
+</tr>
+</tbody>
+</table>
+<p>值得单独说的是<strong>唯一性和顺序被拆成了两张表</strong>。很多自研队列把这两件事压在 <code>status</code> 上：「没跑过就是没跑过」。一旦要求「同一 lane 严格按序、不同 lane 并行」，<code>status</code> 就不够用了——你需要一个东西表达「谁现在是队头」，那是 lanes 的 <code>head_sequence</code>，不是 items 的 <code>status</code>。混着用，早晚会写出「为了不重复而阻塞了顺序」的代码。</p>
+<h2 id="claim-skip-locked">四、claim 为什么不用 SKIP LOCKED</h2>
+<p><code>work.py:314</code> 的候选扫描先 join lanes 只取队头，<code>limit max(32, limit * 4)</code>，然后对每个候选走 <code>_claim_candidate</code>（<code>work.py:826</code>）。那里的锁序是固定的：lane → logical key → work item，锁完复核队头、复核状态与过期，最后 <code>update ... where state_version = 旧值</code>，<code>rowcount != 1</code> 直接抛 <code>StaleWorkClaimError</code>。</p>
+<p>不用 SKIP LOCKED 的理由有两条，都不是性能问题：</p>
+<ol>
+<li>严格串行要求「只看队头」。SKIP LOCKED 的语义是「跳过被占的、拿下一个」，一旦跳过队头去拿后面的 sequence，串行就没了。</li>
+<li>跨表锁序没法用 SKIP LOCKED 表达。要同时锁 lane 行和 work 行，跳过会让加锁顺序不确定，死锁概率上升。</li>
+</ol>
+<p>代价也真实：高并发下多个 worker 会重复扫同一批队头，claim 变成「worker 数 × 扫描宽度」的无效读。这是拿吞吐换确定性。在 LLM 任务这个量级完全划算——一次 claim 毫秒级，一次推理几十秒。</p>
+<h2 id="fence">五、fence 只认数据库时间</h2>
+<p>说人话：这是一台取号机。每次有人领到活，号码必须比上一次大；写入方只认它见过的最大号，收到更小的号直接拒。这样即使 A 卡了 30 秒、锁早过期、B 已经干完，A 醒来交的仍然是旧号，被挡在门外。</p>
+<p>三个细节决定它到底能不能用：</p>
+<ol>
+<li>fence 取 <code>lease_fence + 1</code>（<code>coordination.py:115</code>），只增不减，新 owner 一定拿到更大的号。</li>
+<li>过期判断用数据库时间，应用时钟只用于 poll 和 deadline。</li>
+<li>这里踩过一个真坑：最初写的是 <code>CURRENT_TIMESTAMP(6)</code>，review 指出它是 session 时区，非 UTC tenant 上会把整个协调窗口平移，后来改成 <code>UTC_TIMESTAMP(6)</code>。</li>
+</ol>
+<p>为什么不能用 <code>GET_LOCK()</code>：session 级锁，连接池里连接会被复用，锁跟着连接走而不是跟着逻辑 owner 走，释放和持有的边界都对不上。RFC 把它列进「未采用方案」是对的。</p>
+<blockquote>
+<p>经验法则：锁解决「减少重复干活」（efficiency），fence 解决「不许写坏数据」（correctness）。前者失效只是浪费，后者失效是脏数据。Kleppmann 2016 年批 Redlock 批的就是这个混淆；而 Chubby 的 sequencer 在 2006 年就把答案写下了。</p>
+</blockquote>
+<p>Memory cursor 属于 correctness 那一类：写错就是「同一批数据被处理两遍、cursor 跳了一格」。所以这里必须 fence，不能只靠 TTL 锁。</p>
+<h2 id="_4">六、洞一：快照和入队之间那条缝</h2>
+<p><img alt="两个 P1 洞：快照与入队之间的间隙，以及绕过 fence 的提前提交" src="/assets/images/posts/work-ledger-fence-and-two-holes/02-two-holes.svg" /></p>
+<p><code>durable_scheduler.py:179</code> 的 <code>page()</code> 在事务外取快照，随后每个 spec 各开一个事务入队。中间这段时间里，可能塞进一次 manual flush 的完整提交。</p>
+<p>时间线是这样的：t0 Scheduler 快照出 <code>0 → 2</code>；t1 manual flush 入队 <code>0 → 1</code>，logical key 相同，于是 join 到同一个 work；t2 manual 提交成功，cursor 变成 1，<code>complete()</code> 释放 logical key、队头前移；t3 Scheduler 拿着 t0 的快照入队——key 已经空了，插入成功，于是库里多了一个 payload 写着 <code>after=0 / through=2</code> 的新 work；t4 Worker 跑它，<code>_require_exact_cursor</code> 发现库里 cursor 已是 1，抛 <code>cursor_changed</code>。</p>
+<p><strong>去重救不了这个洞</strong>，因为去重的前提是「key 已经被占」。而释放 key 是设计要求的，不释放后面窗口永远排不进来。释放之后，陈旧快照就有位置了。它插进去的不是重复工作，是一个<strong>指向过去的窗口</strong>。</p>
+<p>后果也不是「多跑一次」，而是「这条 lane 从此堵住」：终态失败会保留 key 与 lane 占位（这是防 poison window 无限重建的设计），于是后续所有窗口都排在这个坏队头后面，全部阻塞。</p>
+<p>这个洞最有意思的地方是：<strong>它不是谁粗心，是两个正确决定撞在一起。</strong>「释放 key 让后续窗口能进」是对的，「终态失败保留占位」也是对的，两个都对，缝在中间。</p>
+<p>修法有两条：入队前在 lane 锁内复核 cursor；或者把被超越的窗口退休掉、重扫它剩下的 Source。都不难，但都得先承认一件事——<strong>快照不是承诺。</strong></p>
+<h2 id="handler">七、洞二：有一个 handler 自己提交了</h2>
+<p>Memory 和 Experience 的形状是对的。<code>prepare()</code> 在短事务里读 cursor、取窗口行，然后<strong>出事务</strong>跑模型，返回一个 commit 闭包；这个闭包在 <code>complete()</code> 的事务里执行（<code>work_handlers.py:338</code>）：先 <code>FOR UPDATE</code> 读 cursor、<code>_require_exact_cursor</code> 复核、apply、save，全在一个事务内。</p>
+<p>Profile 不一样。<code>prepare()</code> → <code>_catch_up()</code> → <code>self._profiles.flush()</code>，而 <code>flush()</code> 内部自己 commit，Profile 和 Profile cursor 都落了地。它返回的是 <code>PreparedWork(result=...)</code>，没有 commit（<code>work_handlers.py:516</code>）。</p>
+<p>于是 <code>complete()</code> 里 <code>_verify_claim</code> 发现租约过期、抛 <code>StaleWorkClaimError</code>、ledger 回滚——但领域写已经在数据库里了。另一个 worker 接手再跑一次，看到 cursor 已推进，走 <code>already_committed</code> 收工。两边都「成功」，ledger 里 attempt 1 是失败，领域状态却前进了。</p>
+<p>为什么会这样：<code>PreparedWork.commit</code> 的类型是 <code>WorkCommit | None</code>。这个 <code>| None</code> 原本是给「不需要额外领域写」的 handler 留的，但它同时是一个合法的逃生门——任何 handler 都能在自己的 <code>prepare()</code> 里偷偷提交，类型系统不会拦。</p>
+<blockquote>
+<p>不变量写在 RFC 里，只对读过 RFC 的人有效；写在类型里，才对没读过的人有效。</p>
+</blockquote>
+<p>修法不是加注释。让 <code>commit</code> 不可为空，并让 <code>prepare()</code> 根本拿不到能提交的连接——这样这类错误在写代码时就写不出来。</p>
+<h2 id="_5">八、为什么被关掉</h2>
+<p>24 个 commit 里 10 个是 merge，占 42%。141 个文件横跨持久化、运行时、HTTP、客户端、MCP、部署六个面，<code>+8125</code> 行集中在 <code>src/powercontext</code> 的 59 个文件里。46 天里维护者提了四次 rebase，关掉前一天最后一条评论还是「please update &amp; resolve conflicts」。</p>
+<p>这不是死于技术分歧，是死于长命分支的腐坏：每 rebase 一次，就要把跨六个面的不变量重新验证一遍，验证成本随手写成本线性上涨，而收益要等整套拓扑上线才兑现。</p>
+<h2 id="_6">九、能搬走的三条</h2>
+<ol>
+<li><strong>时间只认数据库。</strong> 应用时钟做 poll 和 deadline 就够了；判租约、判窗口、判重试，一律用库时间。</li>
+<li><strong>fence 必须罩住领域写，不是只罩住 ledger 行。</strong> 校验在事务开头、领域写在事务结束，中间任何一次独立 commit 都会把 fence 变成装饰。</li>
+<li><strong>「读快照 → 判断 → 写占位」必须同一个事务边界，或者判断必须可重做。</strong> 唯一 key、去重、幂等，都替代不了这一点。</li>
+</ol>
+<p>还有一条不算技术：一个 PR 同时改协议、改 schema、改 HTTP 契约、改部署拓扑，就没法分批合。分批合是长命分支唯一的解药。</p>
+<h2 id="_7">边界</h2>
+<p>这篇只谈 <code>#1446</code> 自己的 Work Ledger。它没有合入，master 上也没有 <code>pc_work_items</code>；文中代码引用都取自 PR 分支 <code>feat/distributed</code>（最后 commit <code>ea3669f1</code>）。两个 P1 来自 10 月 15 日的 review，当时未修复，PR 四天后关闭。</p>
+<p>也不能由此推出「数据库当队列不行」。在 LLM 任务这个量级——一次 claim 毫秒级、一次推理几十秒——库当队列是划算的：省掉一个持久真相、省掉一次跨系统提交。把同样的设计推到万级 QPS 的毫秒任务上，结论会反过来，那时候瓶颈是表膨胀和连接池，不是协议。</p>
+<hr />
+<p>相关链接：</p>
+<ul>
+<li>PR #1446：https://github.com/oceanbase/powercontext/pull/1446</li>
+<li>RFC 1430（在 PR 分支内）：https://github.com/oceanbase/powercontext/blob/ea3669f168/docs/zh/rfcs/1430_distributed_server_workers.md</li>
+<li>Kleppmann, How to do distributed locking：https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html</li>
+<li>Burrows, The Chubby lock service (2006)：https://research.google/pubs/the-chubby-lock-service-for-loosely-coupled-distributed-systems/</li>
+</ul>
+    </article>
+
+    <aside class="toc" aria-label="目录">
+      <div class="toc__title">本页目录</div>
+      <ul><li><a href="#_1">一、它要换掉的，是三个「只有一个进程」的假设</a></li><li><a href="#_2">二、一次窗口提交要走四段路</a></li><li><a href="#_3">三、八张表，其实是三种真相</a></li><li><a href="#claim-skip-locked">四、claim 为什么不用 SKIP LOCKED</a></li><li><a href="#fence">五、fence 只认数据库时间</a></li><li><a href="#_4">六、洞一：快照和入队之间那条缝</a></li><li><a href="#handler">七、洞二：有一个 handler 自己提交了</a></li><li><a href="#_5">八、为什么被关掉</a></li><li><a href="#_6">九、能搬走的三条</a></li><li><a href="#_7">边界</a></li></ul>
+      <div class="toc__title" style="margin-top:22px">快捷键</div>
+      <div style="font-size:12.5px;color:var(--text-mute);line-height:1.9">
+        <code>/</code> 搜索文章<br>
+        <code>Esc</code> 关闭搜索
+      </div>
+    </aside>
+  </div>
+
+  <footer class="article-foot">
+    <div class="article-foot__label">标签</div>
+    <div class="tag-cloud" style="margin-bottom:8px">
+<a class="tag" href="/tags/分布式/">#分布式</a><a class="tag" href="/tags/任务队列/">#任务队列</a><a class="tag" href="/tags/oceanbase/">#OceanBase</a><a class="tag" href="/tags/engineering/">#工程实践</a><a class="tag" href="/tags/复盘/">#复盘</a>    </div>
+
+    <div class="post-nav">
+<div class="empty"></div>      <a href="/posts/seata-at-undolog-for-cross-resource-commit/" style="text-align:right">
+        <span class="dir">下一篇 · 2026-10-20 →</span>
+        <span class="ttl">1.2 万行的分布式 PR 关掉之后：Seata AT 里只有 undo log 值得搬</span>
+      </a>
+    </div>
+
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" type="button" data-top>↑ 回到顶部</button>
+      <a class="btn" href="/archive/">全部文章</a>
+      <a class="btn" href="https://github.com/jasondeng1997/issues" target="_blank" rel="noopener">反馈问题</a>
+    </div>
+  </footer>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__grid">
+      <div>
+        <h4>JasonDeng 的技术随笔</h4>
+        <p>JasonDeng 的个人技术博客。记录后端工程实践、分布式系统、中间件源码阅读与日常踩坑复盘。</p>
+      </div>
+      <div>
+        <h4>导航</h4>
+        <div class="site-footer__links">
+<a href="/">首页</a><a href="/archive/">归档</a><a href="/tags/">标签</a><a href="/about/">关于</a><a href="/admin/">写文章</a>          <a href="/feed.xml">RSS 订阅</a>
+        </div>
+      </div>
+      <div>
+        <h4>找到我</h4>
+        <div class="site-footer__links">
+          <a href="https://github.com/jasondeng1997" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://juejin.cn/user/3711599231642845" target="_blank" rel="noopener">掘金</a>
+          <a href="mailto:15301580353@163.com">15301580353@163.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="site-footer__bottom">
+      <span>© 2026 JasonDeng · 本站使用 Markdown 写作 + 自研静态生成器构建，托管于 GitHub Pages。</span>
+      <span>共 13 篇文章 · 构建于 2026-10-23 03:02</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="search-dialog" id="search-dialog" aria-label="站内搜索">
+  <input class="search-dialog__input" id="search-input" type="search" placeholder="搜索文章标题、标签、正文…" autocomplete="off" spellcheck="false">
+  <div class="search-dialog__results" id="search-results"></div>
+</dialog>
+
+<script src="/assets/static/main.js" defer></script>
+</body>
+</html>
