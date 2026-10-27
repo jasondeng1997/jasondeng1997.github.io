@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 700" width="1160" height="700" role="img" aria-label="四个地基位移：分支依赖的四样东西在 641 个 commit 里全部变过">
+  <defs>
+    <marker id="d1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <rect width="1160" height="700" fill="#ffffff"/>
+
+  <text x="40" y="34" font-family="'PingFang SC','Microsoft YaHei',-apple-system,sans-serif" font-size="15" font-weight="600" fill="#1f2328">50 个冲突文件之外，真正要重做的是四件事</text>
+  <text x="40" y="56" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12" fill="#5b6270">左侧：分支写下代码时依赖的东西　→　右侧：641 个 commit 之后 master 上的实际状态</text>
+
+  <!-- 列标题 -->
+  <text x="104" y="88" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a919e">分支依赖的</text>
+  <text x="492" y="88" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a919e">master 上的</text>
+  <text x="856" y="88" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a919e">代价</text>
+
+  <!-- 1 -->
+  <rect x="40" y="98" width="1080" height="118" rx="10" fill="#fcf7f4" stroke="#e5c9b4" stroke-width="1.2"/>
+  <circle cx="72" cy="157" r="15" fill="#c2410c"/>
+  <text x="72" y="162" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#ffffff">1</text>
+
+  <text x="104" y="134" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">一个正在扩展的索引模块</text>
+  <text x="104" y="158" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">persistence/memory_index.py　+11 / −1</text>
+  <text x="104" y="177" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">oceanbase/memory_index.py　+44</text>
+  <text x="104" y="199" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">共 55 行新增，挂在旧结构上</text>
+
+  <path d="M452,157 L484,157" stroke="#b45309" stroke-width="1.6" fill="none" marker-end="url(#d1)"/>
+
+  <text x="492" y="140" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">整个文件被删掉了</text>
+  <text x="492" y="162" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">−283　/　−506（收进 atomic_projection.py）</text>
+  <text x="492" y="181" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">benchmark/locomo_plus/* 一并删除</text>
+
+  <text x="856" y="146" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a4b0f">没有「合并」这个选项</text>
+  <text x="856" y="166" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">这 55 行必须在</text>
+  <text x="856" y="185" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">新架构里重写</text>
+
+  <!-- 2 -->
+  <rect x="40" y="228" width="1080" height="118" rx="10" fill="#fcf7f4" stroke="#e5c9b4" stroke-width="1.2"/>
+  <circle cx="72" cy="287" r="15" fill="#c2410c"/>
+  <text x="72" y="292" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#ffffff">2</text>
+
+  <text x="104" y="264" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">两个底层原语</text>
+  <text x="104" y="288" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">database_now()　取库时间</text>
+  <text x="104" y="307" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">insert_if_absent()　冲突容忍插入</text>
+  <text x="104" y="329" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">都在 persistence/database.py 里</text>
+
+  <path d="M452,287 L484,287" stroke="#b45309" stroke-width="1.6" fill="none" marker-end="url(#d1)"/>
+
+  <text x="492" y="262" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">一个搬家且改了语义，一个不存在了</text>
+  <text x="492" y="284" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">database_now 搬到 dream.py:42，改成返回 tz-aware</text>
+  <text x="492" y="303" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">insert_if_absent 降级为 cursors.py 的私有表专用函数</text>
+  <text x="492" y="324" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">database.py 本身被重写：+229 / −28</text>
+
+  <text x="856" y="276" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a4b0f">同名不代表同一件事</text>
+  <text x="856" y="296" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">直接复用会在 claim 路径炸</text>
+  <text x="856" y="315" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">offset-naive / aware 比较</text>
+
+  <!-- 3 -->
+  <rect x="40" y="358" width="1080" height="118" rx="10" fill="#fcf7f4" stroke="#e5c9b4" stroke-width="1.2"/>
+  <circle cx="72" cy="417" r="15" fill="#c2410c"/>
+  <text x="72" y="422" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#ffffff">3</text>
+
+  <text x="104" y="394" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">整套迁移框架</text>
+  <text x="104" y="418" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">migrations/versions/0002_work_ledger.py</text>
+  <text x="104" y="437" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">一个 Alembic revision，八个表</text>
+  <text x="104" y="459" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">建表靠 metadata</text>
+
+  <path d="M452,417 L484,417" stroke="#b45309" stroke-width="1.6" fill="none" marker-end="url(#d1)"/>
+
+  <text x="492" y="392" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">换成 bundle + 冻结 DDL + 指纹</text>
+  <text x="492" y="414" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">revision 链 s1300 → s1400 → s1401 → s1402</text>
+  <text x="492" y="433" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">建表靠清单，且 create_tables() 会拒绝清单外的表</text>
+  <text x="492" y="454" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">「这个包在启动时不跑任何东西」—— migrations/__init__.py</text>
+
+  <text x="856" y="406" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a4b0f">旧 revision 不被认识</text>
+  <text x="856" y="426" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">八个表在 BUILTIN_TABLES 里，</text>
+  <text x="856" y="445" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">却不在任何清单里</text>
+  <text x="856" y="464" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#c2410c">→ 托管库直接拒绝启动</text>
+
+  <!-- 4 -->
+  <rect x="40" y="488" width="1080" height="118" rx="10" fill="#fcf7f4" stroke="#e5c9b4" stroke-width="1.2"/>
+  <circle cx="72" cy="547" r="15" fill="#c2410c"/>
+  <text x="72" y="552" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#ffffff">4</text>
+
+  <text x="104" y="524" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">一个被我们删掉的调度器</text>
+  <text x="104" y="548" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">runtime/scheduler.py　−235（整文件删除）</text>
+  <text x="104" y="567" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">用 durable_scheduler + worker 取代 APScheduler</text>
+  <text x="104" y="589" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">删除是我们主动的设计决定</text>
+
+  <path d="M452,547 L484,547" stroke="#b45309" stroke-width="1.6" fill="none" marker-end="url(#d1)"/>
+
+  <text x="492" y="522" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="600" fill="#1f2328">master 上不但还在，还越长越大</text>
+  <text x="492" y="544" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">scheduler.py　+8 / −3，仍由 composition / factory / app 引用</text>
+  <text x="492" y="563" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">641 个 commit 里又挂了新的定时任务</text>
+  <text x="492" y="584" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">这次 rebase 的结果：scheduler.py 回到 master 版本</text>
+
+  <text x="856" y="536" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a4b0f">反向依赖</text>
+  <text x="856" y="556" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">删除的前提是「没人再用」，</text>
+  <text x="856" y="575" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">而每个新任务都要改接到</text>
+  <text x="856" y="594" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">Work Ledger 上</text>
+
+  <!-- 结论 -->
+  <rect x="40" y="626" width="1080" height="46" rx="23" fill="#1f2328"/>
+  <text x="580" y="655" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" fill="#ffffff">冲突是可见成本，可以数；地基位移是隐藏成本，只能事后从失败里读出来</text>
+</svg>

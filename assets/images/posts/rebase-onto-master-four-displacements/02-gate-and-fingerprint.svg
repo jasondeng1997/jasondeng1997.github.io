@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 620" width="1160" height="620" role="img" aria-label="迁移门禁与指纹：一张控制表把 create_tables 切成创建和校验两种语义，指纹只能从实际 schema 清点出来">
+  <defs>
+    <marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5261"/>
+    </marker>
+    <marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d6fa5"/>
+    </marker>
+  </defs>
+
+  <rect width="1160" height="620" fill="#ffffff"/>
+
+  <text x="40" y="34" font-family="'PingFang SC','Microsoft YaHei',-apple-system,sans-serif" font-size="15" font-weight="600" fill="#1f2328">同一个 create_tables()，两种语义；同一个 schema，一个存结果一个存过程</text>
+
+  <!-- 左：门禁 -->
+  <text x="40" y="66" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#8a4b0f">① 门禁：一张控制表决定这个函数是「建」还是「验」</text>
+
+  <rect x="40" y="80" width="520" height="44" rx="8" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.4"/>
+  <text x="60" y="107" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" fill="#1f2328">create_tables(connection, tables)　←　调用方只要「这些表可用」</text>
+
+  <path d="M300,124 L300,144" stroke="#4a5261" stroke-width="1.5" fill="none" marker-end="url(#m1)"/>
+
+  <rect x="40" y="148" width="520" height="44" rx="8" fill="#f6f3fb" stroke="#8b7cc8" stroke-width="1.4"/>
+  <text x="60" y="175" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" fill="#1f2328">库里存在 pc_schema_revision 吗？　（= 这个库跑过迁移）</text>
+
+  <path d="M196,192 L196,214" stroke="#4a5261" stroke-width="1.5" fill="none" marker-end="url(#m1)"/>
+  <path d="M404,192 L404,214" stroke="#4a5261" stroke-width="1.5" fill="none" marker-end="url(#m1)"/>
+  <text x="100" y="208" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#5b6270">是（托管库）</text>
+  <text x="414" y="208" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#5b6270">否（空库）</text>
+
+  <rect x="40" y="218" width="240" height="132" rx="8" fill="#fcf2f0" stroke="#d98c74" stroke-width="1.3"/>
+  <text x="56" y="242" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#1f2328">只做断言，不建表</text>
+  <text x="56" y="264" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">请求的表名必须 ⊆ 实际表名</text>
+  <text x="56" y="283" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">缺一个就抛，然后返回</text>
+  <text x="56" y="308" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#c2410c">unsupported_configuration:</text>
+  <text x="56" y="324" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#c2410c">The versioned database does</text>
+  <text x="56" y="339" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#c2410c">not cover the requested tables.</text>
+
+  <rect x="320" y="218" width="240" height="132" rx="8" fill="#f0f7ee" stroke="#7aa86b" stroke-width="1.3"/>
+  <text x="336" y="242" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#1f2328">真的建表</text>
+  <text x="336" y="264" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">metadata.create_all(…, checkfirst=True)</text>
+  <text x="336" y="286" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">按 metadata 现编译 DDL</text>
+  <text x="336" y="312" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#5b6270">本地开发、测试走这条路</text>
+
+  <text x="40" y="378" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">后果：把八张账本表挂进 BUILTIN_TABLES，却没挂进任何 revision 清单</text>
+  <text x="40" y="398" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">＝ 本地全绿、托管库全挂。14 个测试的失败信息完全一样。</text>
+
+  <rect x="40" y="418" width="520" height="52" rx="8" fill="#fff8e6" stroke="#d9b25f" stroke-width="1.2"/>
+  <text x="58" y="440" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#1f2328">这不是 bug，是缺一块迁移 bundle：</text>
+  <text x="58" y="459" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#1f2328">schema 的所有权被显式登记了，代码里「我是谁」这句话不再算数。</text>
+
+  <!-- 右：指纹 -->
+  <text x="620" y="66" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12.5" font-weight="600" fill="#1d6fa5">② 指纹：不能写出来，只能测出来</text>
+
+  <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="12">
+    <rect x="620" y="80" width="150" height="38" rx="6" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.2"/>
+    <text x="636" y="104" fill="#1f2328">s1300 基线</text>
+    <text x="790" y="104" fill="#4a5261" font-size="11">11e87700…</text>
+
+    <rect x="620" y="134" width="150" height="38" rx="6" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.2"/>
+    <text x="636" y="158" fill="#1f2328">s1400</text>
+    <text x="790" y="158" fill="#4a5261" font-size="11">9064ecb0…</text>
+
+    <rect x="620" y="188" width="150" height="38" rx="6" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.2"/>
+    <text x="636" y="212" fill="#1f2328">s1401</text>
+    <text x="790" y="212" fill="#4a5261" font-size="11">8752beed…</text>
+
+    <rect x="620" y="242" width="150" height="38" rx="6" fill="#eef4ff" stroke="#7aa2f7" stroke-width="1.2"/>
+    <text x="636" y="266" fill="#1f2328">s1402</text>
+    <text x="790" y="266" fill="#4a5261" font-size="11">795b6fd0…</text>
+
+    <rect x="620" y="296" width="150" height="38" rx="6" fill="#e6f2fb" stroke="#1d6fa5" stroke-width="1.8"/>
+    <text x="636" y="320" fill="#1f2328" font-weight="600">s1403　新增</text>
+    <text x="790" y="320" fill="#1d6fa5" font-size="11" font-weight="600">1f15759e…</text>
+  </g>
+
+  <path d="M695,118 L695,130" stroke="#1d6fa5" stroke-width="1.4" fill="none" marker-end="url(#m2)"/>
+  <path d="M695,172 L695,184" stroke="#1d6fa5" stroke-width="1.4" fill="none" marker-end="url(#m2)"/>
+  <path d="M695,226 L695,238" stroke="#1d6fa5" stroke-width="1.4" fill="none" marker-end="url(#m2)"/>
+  <path d="M695,280 L695,292" stroke="#1d6fa5" stroke-width="1.4" fill="none" marker-end="url(#m2)"/>
+
+  <text x="900" y="104" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="10.5" fill="#8a919e">重放后与清单</text>
+  <text x="900" y="119" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="10.5" fill="#8a919e">逐字节一致</text>
+
+  <rect x="620" y="352" width="500" height="70" rx="8" fill="#f7f9fb" stroke="#c3ccd8" stroke-width="1.2"/>
+  <text x="636" y="374" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#1f2328">每步清点 sqlite_schema 的 (type, name, tbl_name, sql)</text>
+  <text x="636" y="393" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#1f2328">→ 规范化 JSON → SHA256 → 与清单里的值比对</text>
+  <text x="636" y="412" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#5b6270">所以新 revision 的指纹必须先真的建出来，才能算出</text>
+
+  <rect x="620" y="434" width="500" height="36" rx="6" fill="#fcf2f0" stroke="#d98c74" stroke-width="1.2"/>
+  <text x="634" y="457" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#8a3a1a">A semantically equivalent but unregistered schema requires review, never an optimistic stamp.</text>
+
+  <text x="620" y="492" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#5b6270">同一份 metadata，两种冻结方式：</text>
+  <text x="620" y="512" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">sqlite-s1403.json　5.5 KB　8 条 CREATE TABLE + 7 条 CREATE INDEX　→ 存结果</text>
+  <text x="620" y="532" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11.5" fill="#4a5261">mysql-s1403.json　120 KB（4234 行）　含每条语句的 parse transition　→ 存过程</text>
+  <text x="620" y="556" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="11" fill="#8a919e">一边靠文本比对，一边靠结构比对，所以两边的登记成本差 22 倍</text>
+</svg>
