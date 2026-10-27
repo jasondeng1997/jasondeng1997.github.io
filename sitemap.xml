@@ -21,6 +21,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/posts/rebase-onto-master-four-displacements/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/posts/work-ledger-fence-and-two-holes/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -96,6 +101,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/tags/复盘/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/tags/agent/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -116,17 +126,22 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/复盘/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://jasondeng1997.github.io/tags/mysql/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jasondeng1997.github.io/tags/分布式/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jasondeng1997.github.io/tags/microservices/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jasondeng1997.github.io/tags/database/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -176,11 +191,6 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://jasondeng1997.github.io/tags/分布式/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://jasondeng1997.github.io/tags/distributed-system/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -217,11 +227,6 @@
   </url>
   <url>
     <loc>https://jasondeng1997.github.io/tags/productivity/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://jasondeng1997.github.io/tags/database/</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

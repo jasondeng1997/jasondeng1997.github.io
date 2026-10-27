@@ -1,5 +1,17 @@
 [
   {
+    "title": "冲突清完了，地基还在动：把 1.4 万行搬回上游 master",
+    "url": "/posts/rebase-onto-master-four-displacements/",
+    "date": "2026-10-27",
+    "tags": [
+      "分布式",
+      "工程实践",
+      "复盘",
+      "数据库"
+    ],
+    "summary": "50 个冲突文件、115 个冲突块，一天清完，冲突标记归零——然后 14 个测试挂在同一句话上。把 #1446 的 1.4 万行搬到当前 master 上，真正的成本不是合并冲突，是分支依赖的四样东西在 641 个 commit 里被删掉、搬走、改语义、或者反过来开始依赖你。"
+  },
+  {
     "title": "fence 写对了，洞还在：拆一个被关掉的分布式任务系统",
     "url": "/posts/work-ledger-fence-and-two-holes/",
     "date": "2026-10-23",
